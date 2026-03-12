@@ -6,6 +6,16 @@ export type ShipmentStatus =
   | 'VOIDED'
   | 'ERROR';
 
+export type ShipmentExecutionState =
+  | 'NOT_STARTED'
+  | 'PURCHASE_REQUESTED'
+  | 'LABEL_PURCHASED'
+  | 'SYNC_QUEUED'
+  | 'FULFILLED'
+  | 'VOIDED'
+  | 'FAILED'
+  | 'UNAVAILABLE';
+
 export type ShipmentMetadata = {
   marketplaceSync?: {
     state?: string;
@@ -71,6 +81,11 @@ export type Shipment = {
   voidedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  workflow: {
+    status: ShipmentExecutionState;
+    message: string;
+    canVoid: boolean;
+  };
 };
 
 export type OrderItem = {
@@ -118,6 +133,20 @@ export type Order = {
   } | null;
   items: OrderItem[];
   shipments: Shipment[];
+  fulfillment: {
+    provider: string;
+    providerConfigured: boolean;
+    defaultShipFromConfigured: boolean;
+    canRequestRates: boolean;
+    canPurchaseLabels: boolean;
+    status: ShipmentExecutionState;
+    message: string;
+    latestShipmentState: {
+      status: ShipmentExecutionState;
+      message: string;
+      canVoid: boolean;
+    };
+  };
 };
 
 export type ShippingRate = {
@@ -164,6 +193,23 @@ export function formatShipmentStatus(status: ShipmentStatus) {
       return 'Sync queued';
     case 'SYNCED_TO_MARKETPLACE':
       return 'Marketplace synced';
+    default:
+      return status.toLowerCase().replace(/_/g, ' ');
+  }
+}
+
+export function formatExecutionState(status: ShipmentExecutionState) {
+  switch (status) {
+    case 'PURCHASE_REQUESTED':
+      return 'Purchase requested';
+    case 'LABEL_PURCHASED':
+      return 'Label purchased';
+    case 'SYNC_QUEUED':
+      return 'Sync queued';
+    case 'FULFILLED':
+      return 'Fulfilled';
+    case 'UNAVAILABLE':
+      return 'Unavailable';
     default:
       return status.toLowerCase().replace(/_/g, ' ');
   }
