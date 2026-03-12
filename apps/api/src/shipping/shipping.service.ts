@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -13,6 +14,7 @@ import { CreateShippingRatesDto } from './dto/create-shipping-rates.dto';
 import { PurchaseLabelDto } from './dto/purchase-label.dto';
 import { EasyPostClient } from './providers/easypost.client';
 import { SHIPPING_PROVIDER, SHIPPING_SYNC_JOB, SHIPPING_SYNC_QUEUE } from './shipping.constants';
+import { isShippingConfigurationError } from './shipping-workflow-state';
 
 @Injectable()
 export class ShippingService {
@@ -25,6 +27,44 @@ export class ShippingService {
     private readonly shippingSyncQueue: Queue,
   ) {}
 
+  getAvailabilitySummary() {
+    const providerConfigured = this.easyPostClient.isConfigured();
+    const defaultShipFromConfigured = Boolean(this.configService.get<string>('DEFAULT_SHIP_FROM_STREET1'));
+
+    if (!providerConfigured) {
+      return {
+        provider: SHIPPING_PROVIDER,
+        providerConfigured: false,
+        defaultShipFromConfigured,
+        canRequestRates: false,
+        canPurchaseLabels: false,
+        blockedReason:
+          'Shipping is unavailable in this environment. Set EASYPOST_API_KEY to enable rates and label purchase.',
+      };
+    }
+
+    if (!defaultShipFromConfigured) {
+      return {
+        provider: SHIPPING_PROVIDER,
+        providerConfigured: true,
+        defaultShipFromConfigured: false,
+        canRequestRates: false,
+        canPurchaseLabels: true,
+        blockedReason:
+          'Shipping defaults are incomplete. Set DEFAULT_SHIP_FROM_* environment variables before requesting rates.',
+      };
+    }
+
+    return {
+      provider: SHIPPING_PROVIDER,
+      providerConfigured: true,
+      defaultShipFromConfigured: true,
+      canRequestRates: true,
+      canPurchaseLabels: true,
+      blockedReason: null,
+    };
+  }
+
   async getShipmentsForOrder(orderId: string): Promise<unknown> {
     return prisma.shipment.findMany({
       where: { orderId },
@@ -33,6 +73,12 @@ export class ShippingService {
   }
 
   async previewRates(dto: CreateShippingRatesDto) {
+    const availability = this.getAvailabilitySummary();
+
+    if (!availability.canRequestRates) {
+      throw new ServiceUnavailableException(availability.blockedReason);
+    }
+
     const order = await prisma.order.findUnique({
       where: { id: dto.orderId },
     });
@@ -129,7 +175,7 @@ export class ShippingService {
           status: ShipmentStatus.ERROR,
           metadata: this.mergeMetadata(pendingShipment.metadata, {
             purchase: {
-              state: 'FAILED',
+              state: this.isConfigurationError(error) ? 'UNAVAILABLE' : 'FAILED',
               failedAt: new Date().toISOString(),
               recoverable: true,
               message: error instanceof Error ? error.message : 'Unknown carrier purchase error',
@@ -286,7 +332,7 @@ export class ShippingService {
         data: {
           metadata: this.mergeMetadata(shipment.metadata, {
             void: {
-              state: 'FAILED',
+              state: this.isConfigurationError(error) ? 'UNAVAILABLE' : 'FAILED',
               failedAt: new Date().toISOString(),
               message: error instanceof Error ? error.message : 'Unknown refund failure',
             },
@@ -475,5 +521,13 @@ export class ShippingService {
       ...base,
       ...extra,
     } as Prisma.JsonObject;
+  }
+
+  private isConfigurationError(error: unknown) {
+    if (error instanceof ServiceUnavailableException) {
+      return true;
+    }
+
+    return isShippingConfigurationError(error instanceof Error ? error.message : null);
   }
 }

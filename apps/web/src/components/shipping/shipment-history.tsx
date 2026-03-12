@@ -2,21 +2,29 @@
 
 import { Button } from '@omniseller/ui';
 import { StatusBadge, type BadgeTone } from '@/components/shipping/status-badge';
-import { Shipment, formatMoney, formatShipmentStatus, getShipmentLastError, getSyncState } from '@/features/orders/types';
+import {
+  Shipment,
+  formatExecutionState,
+  formatMoney,
+  formatShipmentStatus,
+  getShipmentLastError,
+  getSyncState,
+} from '@/features/orders/types';
 
-function getShipmentTone(status: Shipment['status']): BadgeTone {
+function getExecutionTone(status: Shipment['workflow']['status']): BadgeTone {
   switch (status) {
-    case 'SYNCED_TO_MARKETPLACE':
+    case 'FULFILLED':
     case 'LABEL_PURCHASED':
       return 'success';
     case 'SYNC_QUEUED':
+    case 'PURCHASE_REQUESTED':
       return 'info';
-    case 'VOIDED':
-      return 'neutral';
-    case 'ERROR':
+    case 'UNAVAILABLE':
+      return 'warning';
+    case 'FAILED':
       return 'danger';
     default:
-      return 'warning';
+      return 'neutral';
   }
 }
 
@@ -48,14 +56,18 @@ export function ShipmentHistory({
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={getShipmentTone(shipment.status)}>
-                    {formatShipmentStatus(shipment.status)}
+                  <StatusBadge tone={getExecutionTone(shipment.workflow.status)}>
+                    {formatExecutionState(shipment.workflow.status)}
+                  </StatusBadge>
+                  <StatusBadge tone="neutral">
+                    Record {formatShipmentStatus(shipment.status)}
                   </StatusBadge>
                   <StatusBadge tone={syncState === 'FAILED' || syncState === 'QUEUE_FAILED' ? 'danger' : 'info'}>
                     Sync {syncState.toLowerCase().replace(/_/g, ' ')}
                   </StatusBadge>
                 </div>
                 <div className="text-sm text-slate-700">
+                  <div>{shipment.workflow.message}</div>
                   <div>
                     {shipment.carrier ?? 'Carrier pending'} {shipment.service ? `- ${shipment.service}` : ''}
                   </div>
@@ -100,7 +112,7 @@ export function ShipmentHistory({
               </div>
             ) : null}
 
-            {shipment.status !== 'VOIDED' && shipment.purchasedAt ? (
+            {shipment.workflow.canVoid ? (
               <div className="mt-4 flex justify-end">
                 <Button
                   variant="outline"
