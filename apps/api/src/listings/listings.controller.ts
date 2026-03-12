@@ -16,8 +16,7 @@ export class ListingsController {
     @Param('inventoryItemId') inventoryItemId: string,
     @Query('marketplace') marketplace = 'ebay',
   ) {
-    await this.svc.enqueuePublish(inventoryItemId, marketplace);
-    return 'publish queued';
+    return this.svc.enqueuePublish(inventoryItemId, marketplace);
   }
 
   @Get(':inventoryItemId/ai')

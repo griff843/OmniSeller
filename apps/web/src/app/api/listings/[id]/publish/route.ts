@@ -3,5 +3,10 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     method: 'POST',
   });
   const text = await r.text();
-  return new Response(text, { status: r.status });
+  return new Response(text, {
+    status: r.status,
+    headers: {
+      'content-type': r.headers.get('content-type') ?? 'application/json; charset=utf-8',
+    },
+  });
 }

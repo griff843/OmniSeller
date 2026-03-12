@@ -28,6 +28,31 @@ function getPhotoTone(status: InventoryPhoto['uploadStatus']): BadgeTone {
   }
 }
 
+function getPublishTone(status: InventoryItemDetail['publishState']['status']): BadgeTone {
+  switch (status) {
+    case 'PUBLISHED':
+      return 'success';
+    case 'QUEUED':
+    case 'PROCESSING':
+      return 'info';
+    case 'FAILED':
+    case 'BLOCKED':
+      return 'danger';
+    case 'UNAVAILABLE':
+      return 'warning';
+    default:
+      return 'neutral';
+  }
+}
+
+function humanizePublishStatus(status: InventoryItemDetail['publishState']['status']) {
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
 async function readErrorMessage(response: Response, fallback: string) {
   const text = await response.text();
 
@@ -92,7 +117,16 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
     }
 
     const nextItem = (await response.json()) as InventoryItemDetail;
-    startRefreshTransition(() => setItem(nextItem));
+    startRefreshTransition(() => {
+      setItem(nextItem);
+      window.dispatchEvent(
+        new CustomEvent('inventory-item-refreshed', {
+          detail: {
+            inventoryItemId: nextItem.id,
+          },
+        }),
+      );
+    });
   }
 
   function updateQueue(localId: string, status: UploadQueueItem['status'], errorMessage?: string) {
@@ -278,8 +312,12 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
   }
 
   async function publishToEbay() {
-    if (!item.workflow.canPublish) {
-      setError(item.workflow.readinessBlockers[0] ?? 'This item is not ready to publish yet.');
+    if (!item.workflow.canRequestPublish) {
+      setError(
+        item.workflow.publishActionBlockedReason ??
+          item.workflow.readinessBlockers[0] ??
+          'This item is not ready to publish yet.',
+      );
       return;
     }
 
@@ -296,9 +334,11 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
         throw new Error(await readErrorMessage(response, 'Failed to queue publish'));
       }
 
-      setFeedback('Publish was queued for eBay.');
+      const payload = (await response.json()) as { message?: string };
+      setFeedback(payload.message ?? 'Publish was queued for eBay.');
       await refreshItem().catch(() => undefined);
     } catch (publishError) {
+      await refreshItem().catch(() => undefined);
       setError(publishError instanceof Error ? publishError.message : 'Failed to queue publish');
     } finally {
       setIsPublishing(false);
@@ -355,16 +395,33 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
           <div className="mt-4 space-y-2 text-sm text-slate-700">
             <div>Inventory state: {item.inventoryStatus}</div>
             <div>Readiness: {item.listingReadiness}</div>
+            <div className="flex items-center gap-2">
+              <span>Publish state:</span>
+              <StatusBadge tone={getPublishTone(item.publishState.status)}>
+                {humanizePublishStatus(item.publishState.status)}
+              </StatusBadge>
+            </div>
             <div>Primary photo: {item.primaryPhoto?.originalFileName ?? 'Not set'}</div>
             <div>Latest update: {new Date(item.updatedAt).toLocaleString()}</div>
           </div>
-          {!item.workflow.canPublish ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {item.publishState.message}
+          </div>
+          {!item.workflow.canRequestPublish ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {item.workflow.readinessBlockers[0] ?? 'This item is not ready to publish yet.'}
+              {item.workflow.publishActionBlockedReason ??
+                item.workflow.readinessBlockers[0] ??
+                'This item is not ready to publish yet.'}
             </div>
           ) : null}
-          <Button className="mt-5" onClick={publishToEbay} disabled={isPublishing || !item.workflow.canPublish}>
-            {isPublishing ? 'Queueing...' : item.workflow.canPublish ? 'Publish to eBay' : 'Publish blocked'}
+          <Button className="mt-5" onClick={publishToEbay} disabled={isPublishing || !item.workflow.canRequestPublish}>
+            {isPublishing
+              ? 'Queueing...'
+              : item.workflow.canRequestPublish
+                ? 'Publish to eBay'
+                : item.publishState.isInFlight
+                  ? 'Publish in progress'
+                  : 'Publish unavailable'}
           </Button>
         </div>
       </section>

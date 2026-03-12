@@ -44,6 +44,23 @@ function draftStateTone(state: DraftState): BadgeTone {
   }
 }
 
+function publishStateTone(state: AiListingWorkspace['workflow']['publishState']['status']): BadgeTone {
+  switch (state) {
+    case 'PUBLISHED':
+      return 'success';
+    case 'QUEUED':
+    case 'PROCESSING':
+      return 'info';
+    case 'FAILED':
+    case 'BLOCKED':
+      return 'danger';
+    case 'UNAVAILABLE':
+      return 'warning';
+    default:
+      return 'neutral';
+  }
+}
+
 function humanize(value: string): string {
   return value
     .toLowerCase()
@@ -89,7 +106,15 @@ async function readErrorMessage(response: Response, fallback: string) {
 }
 
 function draftStateMessage(workspace: AiListingWorkspace): string {
-  const { draftState, draftMissingFields, canPublish, publishBlockedReason } = workspace.workflow;
+  const { draftState, draftMissingFields, canPublish, publishBlockedReason, publishState } = workspace.workflow;
+
+  if (publishState.status === 'QUEUED' || publishState.status === 'PROCESSING') {
+    return publishState.message;
+  }
+
+  if (publishState.status === 'UNAVAILABLE' || publishState.status === 'FAILED' || publishState.status === 'PUBLISHED') {
+    return publishState.message;
+  }
 
   switch (draftState) {
     case 'NONE':
@@ -143,6 +168,20 @@ export function AiListingPanel({
     );
     setSpecifics(toSpecificEntries(workspace.draft?.itemSpecifics));
   }, [workspace]);
+
+  useEffect(() => {
+    function handleInventoryRefresh(event: Event) {
+      const customEvent = event as CustomEvent<{ inventoryItemId?: string }>;
+      if (customEvent.detail?.inventoryItemId !== inventoryItemId) {
+        return;
+      }
+
+      void refreshWorkspace().catch(() => undefined);
+    }
+
+    window.addEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
+    return () => window.removeEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
+  }, [inventoryItemId]);
 
   async function refreshWorkspace() {
     const response = await fetch(`/api/listings/${inventoryItemId}/ai`, { cache: 'no-store' });
@@ -338,8 +377,8 @@ export function AiListingPanel({
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Publish status</div>
               <div className="mt-2">
-                <StatusBadge tone={workflow.canPublish ? 'success' : 'warning'}>
-                  {workflow.canPublish ? 'Ready' : 'Blocked'}
+                <StatusBadge tone={publishStateTone(workflow.publishState.status)}>
+                  {humanize(workflow.publishState.status)}
                 </StatusBadge>
               </div>
             </div>
@@ -356,6 +395,13 @@ export function AiListingPanel({
                   <div key={blocker}>{blocker}</div>
                 ))}
               </div>
+            ) : null}
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="font-medium text-slate-950">Publish execution</div>
+            <div className="mt-2">{workflow.publishState.message}</div>
+            {workflow.publishActionBlockedReason ? (
+              <div className="mt-2 text-slate-600">{workflow.publishActionBlockedReason}</div>
             ) : null}
           </div>
 
