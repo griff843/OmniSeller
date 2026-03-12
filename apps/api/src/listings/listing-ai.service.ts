@@ -21,6 +21,7 @@ import {
   determineSaleStatus,
   isPublishReady,
 } from '../inventory/inventory-workflow-state';
+import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 
 @Injectable()
 export class ListingAiService {
@@ -383,6 +384,18 @@ export class ListingAiService {
       !item.listingDraft?.category?.trim() ? 'category' : null,
       item.listingDraft?.priceCents === null || item.listingDraft?.priceCents === undefined ? 'price' : null,
     ].filter((value): value is string => value !== null);
+    const publishState = {
+      status: item.publishStatus ?? 'NOT_REQUESTED',
+      marketplace: item.publishMarketplace ?? 'ebay',
+      requestedAt: item.publishRequestedAt ?? null,
+      queuedAt: item.publishQueuedAt ?? null,
+      startedAt: item.publishStartedAt ?? null,
+      publishedAt: item.publishedAt ?? null,
+      failedAt: item.publishFailedAt ?? null,
+      error: item.publishError ?? null,
+    };
+    const canPublish = isPublishReady(snapshot);
+    const canRequestPublish = canPublish && !isPublishInFlight(publishState.status);
 
     return {
       listingReadiness: item.listingReadiness ?? 'NEEDS_INTAKE',
@@ -398,9 +411,21 @@ export class ListingAiService {
       hasPublishableDraft,
       draftState: hasActiveListing ? 'LISTED' : !hasDraft ? 'NONE' : hasPublishableDraft ? 'READY' : 'INCOMPLETE',
       draftMissingFields,
-      canPublish: isPublishReady(snapshot),
-      publishBlockedReason: isPublishReady(snapshot) ? null : buildReadinessBlockers(snapshot)[0] ?? null,
+      canPublish,
+      canRequestPublish,
+      publishBlockedReason: canPublish ? null : buildReadinessBlockers(snapshot)[0] ?? null,
       readinessBlockers: buildReadinessBlockers(snapshot),
+      publishState: {
+        ...publishState,
+        message: getPublishStateMessage(publishState),
+        canRetry: ['NOT_REQUESTED', 'BLOCKED', 'UNAVAILABLE', 'FAILED'].includes(publishState.status),
+        isInFlight: isPublishInFlight(publishState.status),
+      },
+      publishActionBlockedReason: canPublish
+        ? isPublishInFlight(publishState.status)
+          ? getPublishStateMessage(publishState)
+          : null
+        : buildReadinessBlockers(snapshot)[0] ?? null,
     };
   }
 }

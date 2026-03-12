@@ -57,8 +57,23 @@ export type AiListingWorkspace = {
     draftState: 'NONE' | 'INCOMPLETE' | 'READY' | 'LISTED';
     draftMissingFields: string[];
     canPublish: boolean;
+    canRequestPublish: boolean;
     publishBlockedReason: string | null;
     readinessBlockers: string[];
+    publishActionBlockedReason: string | null;
+    publishState: {
+      status: 'NOT_REQUESTED' | 'BLOCKED' | 'QUEUED' | 'PROCESSING' | 'UNAVAILABLE' | 'FAILED' | 'PUBLISHED';
+      marketplace: string;
+      requestedAt: string | null;
+      queuedAt: string | null;
+      startedAt: string | null;
+      publishedAt: string | null;
+      failedAt: string | null;
+      error: string | null;
+      message: string;
+      canRetry: boolean;
+      isInFlight: boolean;
+    };
   };
 };
 

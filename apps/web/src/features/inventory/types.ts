@@ -19,7 +19,32 @@ export type InventoryWorkflow = {
   canGenerateAi: boolean;
   canEditDraft: boolean;
   canPublish: boolean;
+  canRequestPublish: boolean;
+  publishActionBlockedReason: string | null;
   readinessBlockers: string[];
+};
+
+export type PublishExecutionStatus =
+  | 'NOT_REQUESTED'
+  | 'BLOCKED'
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'UNAVAILABLE'
+  | 'FAILED'
+  | 'PUBLISHED';
+
+export type InventoryPublishState = {
+  status: PublishExecutionStatus;
+  marketplace: string;
+  requestedAt: string | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+  publishedAt: string | null;
+  failedAt: string | null;
+  error: string | null;
+  message: string;
+  canRetry: boolean;
+  isInFlight: boolean;
 };
 
 export type InventoryPhoto = {
@@ -66,6 +91,7 @@ export type InventoryItemDetail = {
   photos: InventoryPhoto[];
   bin: InventoryBin | null;
   listingCount: number;
+  publishState: InventoryPublishState;
   workflow: InventoryWorkflow;
   scanner: {
     provider: string;
