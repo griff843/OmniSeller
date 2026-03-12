@@ -15,7 +15,7 @@ type SpecificEntry = {
 };
 
 type SelectableField = 'title' | 'description' | 'category' | 'priceCents' | 'itemSpecifics';
-
+type DraftState = AiListingWorkspace['workflow']['draftState'];
 type SuggestionStatus = AiListingSuggestion['status'] | undefined;
 
 function suggestionTone(status: SuggestionStatus): BadgeTone {
@@ -31,6 +31,27 @@ function suggestionTone(status: SuggestionStatus): BadgeTone {
   }
 }
 
+function draftStateTone(state: DraftState): BadgeTone {
+  switch (state) {
+    case 'READY':
+      return 'success';
+    case 'LISTED':
+      return 'neutral';
+    case 'INCOMPLETE':
+      return 'warning';
+    default:
+      return 'neutral';
+  }
+}
+
+function humanize(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
 function toSpecificEntries(input?: Record<string, string> | null): SpecificEntry[] {
   const entries = Object.entries(input ?? {}).map(([key, value]) => ({ key, value }));
   return entries.length > 0 ? entries : [{ key: '', value: '' }];
@@ -42,6 +63,48 @@ function toggleField(current: SelectableField[], field: SelectableField, checked
   }
 
   return current.filter((currentField) => currentField !== field);
+}
+
+async function readErrorMessage(response: Response, fallback: string) {
+  const text = await response.text();
+
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { message?: string | string[] };
+    if (Array.isArray(parsed.message)) {
+      return parsed.message.join(', ');
+    }
+
+    if (typeof parsed.message === 'string' && parsed.message.length > 0) {
+      return parsed.message;
+    }
+  } catch {
+    // Fall back to the raw response body.
+  }
+
+  return text;
+}
+
+function draftStateMessage(workspace: AiListingWorkspace): string {
+  const { draftState, draftMissingFields, canPublish, publishBlockedReason } = workspace.workflow;
+
+  switch (draftState) {
+    case 'NONE':
+      return 'No listing draft exists yet. Save a manual draft or apply AI fields to start the listing workflow.';
+    case 'INCOMPLETE':
+      return `Draft exists but is missing ${draftMissingFields.join(', ')}.`;
+    case 'READY':
+      return canPublish
+        ? 'Draft is complete and ready for publish.'
+        : publishBlockedReason ?? 'Draft is complete, but another publish blocker remains.';
+    case 'LISTED':
+      return 'This inventory item already has a listing record.';
+    default:
+      return 'Listing draft state is available.';
+  }
 }
 
 export function AiListingPanel({
@@ -85,7 +148,7 @@ export function AiListingPanel({
     const response = await fetch(`/api/listings/${inventoryItemId}/ai`, { cache: 'no-store' });
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await readErrorMessage(response, 'Failed to refresh listing workspace'));
     }
 
     const nextWorkspace = (await response.json()) as AiListingWorkspace;
@@ -93,6 +156,11 @@ export function AiListingPanel({
   }
 
   async function generateSuggestion() {
+    if (!workspace.workflow.canGenerateAi) {
+      setError(workspace.workflow.aiBlockedReason ?? 'AI listing generation is currently blocked.');
+      return;
+    }
+
     setIsGenerating(true);
     setError(null);
     setFeedback(null);
@@ -103,12 +171,13 @@ export function AiListingPanel({
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await readErrorMessage(response, 'Failed to generate AI listing'));
       }
 
       await refreshWorkspace();
       setFeedback('AI listing suggestions generated. Review before applying anything to the draft.');
     } catch (generationError) {
+      await refreshWorkspace().catch(() => undefined);
       setError(generationError instanceof Error ? generationError.message : 'Failed to generate AI listing');
     } finally {
       setIsGenerating(false);
@@ -116,7 +185,7 @@ export function AiListingPanel({
   }
 
   async function applySuggestion() {
-    if (!workspace.latestSuggestion) {
+    if (!workspace.latestSuggestion || workspace.latestSuggestion.status === 'FAILED') {
       return;
     }
 
@@ -135,7 +204,7 @@ export function AiListingPanel({
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await readErrorMessage(response, 'Failed to apply AI suggestion'));
       }
 
       await refreshWorkspace();
@@ -154,9 +223,9 @@ export function AiListingPanel({
 
     try {
       const payload = {
-        title: draftTitle,
-        description: draftDescription,
-        category: draftCategory,
+        title: draftTitle.trim(),
+        description: draftDescription.trim(),
+        category: draftCategory.trim(),
         priceCents: draftPrice.length > 0 ? Number(draftPrice) : undefined,
         itemSpecifics: Object.fromEntries(
           specifics
@@ -172,7 +241,7 @@ export function AiListingPanel({
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await readErrorMessage(response, 'Failed to save listing draft'));
       }
 
       await refreshWorkspace();
@@ -185,19 +254,28 @@ export function AiListingPanel({
   }
 
   const latestSuggestion = workspace.latestSuggestion;
+  const workflow = workspace.workflow;
+  const currentStateMessage = draftStateMessage(workspace);
+  const aiButtonLabel = !workflow.aiConfigured
+    ? 'AI unavailable'
+    : workflow.canGenerateAi
+      ? latestSuggestion ? 'Regenerate AI listing' : 'Generate AI listing'
+      : 'AI blocked';
 
   return (
     <section className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-[1fr,1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1.05fr,0.95fr]">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">AI Listing</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">Draft generator</h2>
-              <p className="mt-2 text-sm text-slate-600">Generate structured listing suggestions from inventory data and the current photo set, then apply only what you want.</p>
+              <p className="mt-2 text-sm text-slate-600">
+                Generate structured listing suggestions from inventory data and the current photo set, then apply only what you want.
+              </p>
             </div>
-            <Button onClick={generateSuggestion} disabled={isGenerating}>
-              {isGenerating ? 'Generating...' : latestSuggestion ? 'Regenerate AI listing' : 'Generate AI listing'}
+            <Button onClick={generateSuggestion} disabled={isGenerating || !workflow.canGenerateAi}>
+              {isGenerating ? 'Generating...' : aiButtonLabel}
             </Button>
           </div>
 
@@ -213,30 +291,98 @@ export function AiListingPanel({
             </div>
           </div>
 
+          {!workflow.aiConfigured ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              AI listing generation is unavailable in this local environment. Add `OPENAI_API_KEY` to enable it.
+            </div>
+          ) : null}
+
+          {workflow.aiConfigured && workflow.aiBlockedReason ? (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              {workflow.aiBlockedReason}
+            </div>
+          ) : null}
+
           {feedback ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feedback}</div> : null}
           {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
-          {isRefreshing ? <div className="mt-3 text-sm text-slate-500">Refreshing AI workspace...</div> : null}
+          {isRefreshing ? <div className="mt-3 text-sm text-slate-500">Refreshing listing workspace...</div> : null}
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Suggestion history</div>
-          <div className="mt-4 space-y-3">
-            {workspace.suggestionHistory.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-500">
-                No AI suggestions have been generated yet.
+          <div className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Workflow truth</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Listing readiness</div>
+              <div className="mt-2">
+                <StatusBadge tone={workflow.canPublish ? 'success' : 'warning'}>
+                  {humanize(workflow.listingReadiness)}
+                </StatusBadge>
               </div>
-            ) : (
-              workspace.suggestionHistory.map((suggestion) => (
-                <div key={suggestion.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium text-slate-950">{suggestion.title ?? 'Generation failed'}</div>
-                    <StatusBadge tone={suggestionTone(suggestion.status)}>{suggestion.status}</StatusBadge>
-                  </div>
-                  <div className="mt-2 text-xs text-slate-500">{suggestion.provider} | {suggestion.model} | {new Date(suggestion.createdAt).toLocaleString()}</div>
-                  {suggestion.errorMessage ? <div className="mt-2 text-rose-600">{suggestion.errorMessage}</div> : null}
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Draft state</div>
+              <div className="mt-2">
+                <StatusBadge tone={draftStateTone(workflow.draftState)}>
+                  {humanize(workflow.draftState)}
+                </StatusBadge>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI status</div>
+              <div className="mt-2">
+                <StatusBadge tone={workflow.canGenerateAi ? 'success' : workflow.aiConfigured ? 'warning' : 'neutral'}>
+                  {workflow.canGenerateAi ? 'Ready' : workflow.aiConfigured ? 'Blocked' : 'Unavailable'}
+                </StatusBadge>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Publish status</div>
+              <div className="mt-2">
+                <StatusBadge tone={workflow.canPublish ? 'success' : 'warning'}>
+                  {workflow.canPublish ? 'Ready' : 'Blocked'}
+                </StatusBadge>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="font-medium text-slate-950">Current state</div>
+            <div className="mt-2">{currentStateMessage}</div>
+            {workflow.readinessBlockers.filter((blocker) => blocker !== currentStateMessage).length > 0 ? (
+              <div className="mt-3 space-y-1 text-slate-600">
+                {workflow.readinessBlockers
+                  .filter((blocker) => blocker !== currentStateMessage)
+                  .map((blocker) => (
+                  <div key={blocker}>{blocker}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4">
+            <div className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Suggestion history</div>
+            <div className="mt-3 space-y-3">
+              {workspace.suggestionHistory.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-500">
+                  No AI suggestions have been generated yet.
                 </div>
-              ))
-            )}
+              ) : (
+                workspace.suggestionHistory.map((suggestion) => (
+                  <div key={suggestion.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium text-slate-950">
+                        {suggestion.title ?? (suggestion.status === 'FAILED' ? 'Generation failed' : 'Untitled suggestion')}
+                      </div>
+                      <StatusBadge tone={suggestionTone(suggestion.status)}>{suggestion.status}</StatusBadge>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      {suggestion.provider} | {suggestion.model} | {new Date(suggestion.createdAt).toLocaleString()}
+                    </div>
+                    {suggestion.errorMessage ? <div className="mt-2 text-rose-600">{suggestion.errorMessage}</div> : null}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -252,7 +398,14 @@ export function AiListingPanel({
 
           {!latestSuggestion ? (
             <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-500">
-              Generate an AI listing to populate this review panel.
+              {!workflow.aiConfigured
+                ? 'AI is unavailable until OPENAI_API_KEY is configured.'
+                : workflow.aiBlockedReason ?? 'Generate an AI listing to populate this review panel.'}
+            </div>
+          ) : latestSuggestion.status === 'FAILED' ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-6 text-sm text-rose-700">
+              <div className="font-medium text-rose-900">AI suggestion failed</div>
+              <div className="mt-2">{latestSuggestion.errorMessage ?? 'The AI provider did not return a usable suggestion.'}</div>
             </div>
           ) : (
             <div className="mt-4 space-y-4">
@@ -312,12 +465,16 @@ export function AiListingPanel({
                   <span className="text-sm font-semibold text-slate-900">Item specifics</span>
                 </div>
                 <div className="mt-3 space-y-2 text-sm text-slate-700">
-                  {Object.entries(latestSuggestion.itemSpecifics ?? {}).map(([key, value]) => (
-                    <div key={key} className="flex justify-between gap-4 rounded-xl bg-white px-3 py-2">
-                      <span className="font-medium text-slate-900">{key}</span>
-                      <span>{value}</span>
-                    </div>
-                  ))}
+                  {Object.entries(latestSuggestion.itemSpecifics ?? {}).length === 0 ? (
+                    <div className="rounded-xl bg-white px-3 py-2 text-slate-500">No specifics suggested.</div>
+                  ) : (
+                    Object.entries(latestSuggestion.itemSpecifics ?? {}).map(([key, value]) => (
+                      <div key={key} className="flex justify-between gap-4 rounded-xl bg-white px-3 py-2">
+                        <span className="font-medium text-slate-900">{key}</span>
+                        <span>{value}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </label>
               <div className="flex justify-end">
@@ -332,7 +489,21 @@ export function AiListingPanel({
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <h3 className="text-lg font-semibold text-slate-950">Operator draft</h3>
-            <div className="text-sm text-slate-500">Manual edits always stay in control.</div>
+            <div className="text-sm text-slate-500">
+              {workspace.draft ? `Updated ${new Date(workspace.draft.updatedAt).toLocaleString()}` : 'Manual edits always stay in control.'}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="flex items-center gap-3">
+              <StatusBadge tone={draftStateTone(workflow.draftState)}>{humanize(workflow.draftState)}</StatusBadge>
+              {workflow.hasPublishableDraft ? (
+                <StatusBadge tone={workflow.canPublish ? 'success' : 'warning'}>
+                  {workflow.canPublish ? 'Publish ready' : 'Publish blocked'}
+                </StatusBadge>
+              ) : null}
+            </div>
+            <div className="mt-2">{draftStateMessage(workspace)}</div>
           </div>
 
           <div className="mt-4 space-y-4">
@@ -364,9 +535,38 @@ export function AiListingPanel({
               </div>
               {specifics.map((entry, index) => (
                 <div key={`${entry.key}-${index}`} className="grid gap-3 md:grid-cols-[0.9fr,1.1fr,auto]">
-                  <input className="rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Key" value={entry.key} onChange={(event) => setSpecifics((current) => current.map((currentEntry, currentIndex) => currentIndex === index ? { ...currentEntry, key: event.target.value } : currentEntry))} />
-                  <input className="rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder="Value" value={entry.value} onChange={(event) => setSpecifics((current) => current.map((currentEntry, currentIndex) => currentIndex === index ? { ...currentEntry, value: event.target.value } : currentEntry))} />
-                  <Button variant="outline" onClick={() => setSpecifics((current) => current.length === 1 ? [{ key: '', value: '' }] : current.filter((_, currentIndex) => currentIndex !== index))}>
+                  <input
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Key"
+                    value={entry.key}
+                    onChange={(event) =>
+                      setSpecifics((current) =>
+                        current.map((currentEntry, currentIndex) =>
+                          currentIndex === index ? { ...currentEntry, key: event.target.value } : currentEntry,
+                        ),
+                      )
+                    }
+                  />
+                  <input
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Value"
+                    value={entry.value}
+                    onChange={(event) =>
+                      setSpecifics((current) =>
+                        current.map((currentEntry, currentIndex) =>
+                          currentIndex === index ? { ...currentEntry, value: event.target.value } : currentEntry,
+                        ),
+                      )
+                    }
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setSpecifics((current) =>
+                        current.length === 1 ? [{ key: '', value: '' }] : current.filter((_, currentIndex) => currentIndex !== index),
+                      )
+                    }
+                  >
                     Remove
                   </Button>
                 </div>

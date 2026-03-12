@@ -46,6 +46,20 @@ export type AiListingWorkspace = {
     condition: string | null;
     photoCount: number;
   };
+  workflow: {
+    listingReadiness: string;
+    saleStatus: string;
+    aiConfigured: boolean;
+    canGenerateAi: boolean;
+    aiBlockedReason: string | null;
+    hasDraft: boolean;
+    hasPublishableDraft: boolean;
+    draftState: 'NONE' | 'INCOMPLETE' | 'READY' | 'LISTED';
+    draftMissingFields: string[];
+    canPublish: boolean;
+    publishBlockedReason: string | null;
+    readinessBlockers: string[];
+  };
 };
 
 export function formatDraftPrice(priceCents: number | null) {

@@ -3,8 +3,10 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { prisma } from '@omniseller/db';
 import {
+  buildReadinessBlockers,
   determineListingReadiness,
   determineSaleStatus,
+  isPublishReady,
 } from '../inventory/inventory-workflow-state';
 
 const PUBLISH_QUEUE = 'publishListing';
@@ -18,7 +20,13 @@ export class PublishProcessor extends WorkerHost {
     const item: any = await prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
       include: {
+        photos: {
+          where: {
+            deletedAt: null,
+          },
+        },
         listingDraft: true,
+        listings: true,
       },
     } as any);
 
@@ -27,6 +35,30 @@ export class PublishProcessor extends WorkerHost {
     }
 
     const draft = item.listingDraft;
+    const readyPhotoCount = (item.photos ?? []).filter(
+      (photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url),
+    ).length;
+    const hasPublishableDraft = Boolean(
+      draft?.title?.trim() &&
+      draft?.description?.trim() &&
+      draft?.category?.trim() &&
+      draft?.priceCents !== null &&
+      draft?.priceCents !== undefined,
+    );
+    const snapshot = {
+      title: item.title,
+      condition: item.condition,
+      readyPhotoCount,
+      hasSuggestion: false,
+      hasDraft: Boolean(draft),
+      hasPublishableDraft,
+      hasActiveListing: (item.listings ?? []).length > 0,
+      saleStatus: item.saleStatus ?? 'AVAILABLE',
+    } as const;
+
+    if (!isPublishReady(snapshot)) {
+      throw new Error(buildReadinessBlockers(snapshot).join(' '));
+    }
 
     const existingListing = await prisma.listing.findFirst({
       where: {
@@ -110,23 +142,23 @@ export class PublishProcessor extends WorkerHost {
       item.listingDraft?.priceCents !== undefined,
     );
     const hasActiveListing = (item.listings ?? []).length > 0;
+    const snapshot = {
+      title: item.title,
+      condition: item.condition,
+      readyPhotoCount,
+      hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
+      hasDraft: Boolean(item.listingDraft),
+      hasPublishableDraft,
+      hasActiveListing,
+      saleStatus: item.saleStatus ?? 'AVAILABLE',
+    } as const;
 
     await prisma.inventoryItem.update({
       where: { id: inventoryItemId },
       data: {
-        listingReadiness: determineListingReadiness({
-          title: item.title,
-          condition: item.condition,
-          readyPhotoCount,
-          hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
-          hasDraft: Boolean(item.listingDraft),
-          hasPublishableDraft,
-          hasActiveListing,
-          saleStatus: item.saleStatus ?? 'AVAILABLE',
-        }),
+        listingReadiness: determineListingReadiness(snapshot),
         saleStatus: determineSaleStatus(item.saleStatus ?? 'AVAILABLE', hasActiveListing),
       },
     } as any);
   }
 }
-
