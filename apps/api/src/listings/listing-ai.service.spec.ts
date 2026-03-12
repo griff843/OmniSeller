@@ -1,4 +1,4 @@
-import { InternalServerErrorException } from '@nestjs/common';
+import { InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
 import { AiListingSuggestionStatus, prisma } from '@omniseller/db';
 import { ListingAiService } from './listing-ai.service';
 
@@ -27,6 +27,7 @@ jest.mock('@omniseller/db', () => ({
 
 describe('ListingAiService', () => {
   const provider = {
+    isConfigured: jest.fn(),
     generateSuggestion: jest.fn(),
   };
 
@@ -35,6 +36,7 @@ describe('ListingAiService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    provider.isConfigured.mockReturnValue(true);
   });
 
   function mockWorkflowRefresh(overrides: Record<string, unknown> = {}) {
@@ -116,6 +118,30 @@ describe('ListingAiService', () => {
     expect(result.id).toBe('suggestion_1');
   });
 
+  it('reports AI as unavailable without persisting a failed suggestion when no provider key is configured', async () => {
+    mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
+      id: 'item_1',
+      sku: 'SKU-1',
+      title: 'Vintage Camera',
+      description: null,
+      category: null,
+      condition: 'Used',
+      brand: 'Canon',
+      model: 'AE-1',
+      upc: null,
+      costBasisCents: 2500,
+      saleStatus: 'AVAILABLE',
+      photos: [{ url: 'https://cdn.test/photo.jpg', isPrimary: true, originalFileName: 'front.jpg', uploadStatus: 'READY' }],
+      listingDraft: null,
+      listings: [],
+      aiListingSuggestions: [],
+    });
+    provider.isConfigured.mockReturnValue(false);
+
+    await expect(service.generateSuggestion('item_1')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(mockedPrisma.aiListingSuggestion.create).not.toHaveBeenCalled();
+  });
+
   it('persists a failed suggestion record when the provider response is malformed', async () => {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
       id: 'item_1',
@@ -129,7 +155,7 @@ describe('ListingAiService', () => {
       upc: null,
       costBasisCents: 2500,
       saleStatus: 'AVAILABLE',
-      photos: [],
+      photos: [{ url: 'https://cdn.test/photo.jpg', isPrimary: true, originalFileName: 'front.jpg', uploadStatus: 'READY' }],
       listingDraft: null,
       listings: [],
       aiListingSuggestions: [],

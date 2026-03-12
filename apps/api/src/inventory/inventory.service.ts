@@ -13,6 +13,7 @@ import {
   buildReadinessBlockers,
   determineListingReadiness,
   determineSaleStatus,
+  isPublishReady,
   normalizeSku,
   type InventoryStatusValue,
   type SaleLifecycleStatusValue,
@@ -507,23 +508,25 @@ export class InventoryService {
     const primaryPhoto = photos.find((photo) => photo.isPrimary) ?? photos[0] ?? null;
     const readyPhotoCount = photos.filter((photo) => photo.uploadStatus === 'READY' && Boolean(photo.url)).length;
     const latestSuggestion = item.aiListingSuggestions?.[0] ?? null;
+    const hasDraft = Boolean(item.listingDraft);
     const hasPublishableDraft = Boolean(
       item.listingDraft?.title &&
       item.listingDraft?.description &&
       item.listingDraft?.category &&
       (item.listingDraft?.priceCents ?? null) !== null,
     );
-
-    const blockers = buildReadinessBlockers({
+    const snapshot = {
       title: item.title ?? null,
       condition: item.condition ?? null,
       readyPhotoCount,
       hasSuggestion: Boolean(latestSuggestion),
-      hasDraft: Boolean(item.listingDraft),
+      hasDraft,
       hasPublishableDraft,
       hasActiveListing: (item.listings ?? []).length > 0,
       saleStatus: (item.saleStatus ?? 'AVAILABLE') as SaleLifecycleStatusValue,
-    });
+    } as const;
+
+    const blockers = buildReadinessBlockers(snapshot);
 
     return {
       id: item.id,
@@ -560,8 +563,8 @@ export class InventoryService {
       listingCount: item.listings?.length ?? 0,
       workflow: {
         canGenerateAi: ['READY_FOR_AI', 'READY_FOR_LISTING', 'READY_TO_PUBLISH', 'LISTED'].includes(item.listingReadiness ?? 'NEEDS_INTAKE'),
-        canEditDraft: readyPhotoCount > 0,
-        canPublish: hasPublishableDraft,
+        canEditDraft: Boolean(item.title?.trim()) && Boolean(item.condition?.trim()),
+        canPublish: isPublishReady(snapshot),
         readinessBlockers: blockers,
       },
       scanner: this.inventoryScannerService.describeFutureLookupBoundary(),

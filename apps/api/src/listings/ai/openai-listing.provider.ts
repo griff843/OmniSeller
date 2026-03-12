@@ -20,6 +20,10 @@ export class OpenAiListingProvider implements ListingAiProvider {
     private readonly promptBuilder: ListingPromptBuilder,
   ) {}
 
+  isConfigured(): boolean {
+    return Boolean(this.configService.get<string>('OPENAI_API_KEY'));
+  }
+
   async generateSuggestion(input: ListingGenerationInput): Promise<ListingGenerationResult> {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';

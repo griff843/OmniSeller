@@ -12,6 +12,7 @@ coverage
 out
 build
 dist
+apps/web/public/local-uploads
 
 # Environment
 .env
