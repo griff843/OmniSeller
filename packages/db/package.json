@@ -1,0 +1,26 @@
+{
+  "name": "@omniseller/db",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "node ./scripts/run-prisma.cjs generate",
+    "generate": "node ./scripts/run-prisma.cjs generate",
+    "migrate": "node ./scripts/run-prisma.cjs migrate dev",
+    "migrate:deploy": "node ./scripts/run-prisma.cjs migrate deploy",
+    "migrate:status": "node ./scripts/run-prisma.cjs migrate status",
+    "push": "node ./scripts/run-prisma.cjs db push",
+    "studio": "node ./scripts/run-prisma.cjs studio",
+    "seed": "tsx prisma/seed.ts",
+    "clean": "rm -rf node_modules .turbo"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.2"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.2",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}

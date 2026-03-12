@@ -1,0 +1,440 @@
+// ---------------------------------------------------------
+// Prisma Schema for OmniSeller (Supabase/Postgres compatible)
+// ---------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String?  @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts            Account[]
+  sessions            Session[]
+  marketplaceAccounts MarketplaceAccount[]
+  bins                Bin[]
+  inventoryItems      InventoryItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model MarketplaceAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  kind         String
+  siteId       String?
+  nickname     String?
+
+  accessToken  String?  @db.Text
+  refreshToken String?  @db.Text
+  expiresAt    DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings  Listing[]
+  orders    Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([kind])
+}
+
+model Bin {
+  id        String @id @default(cuid())
+  userId    String
+  code      String
+  label     String?
+  area      String?
+  note      String?
+  sortOrder Int    @default(0)
+  isActive  Boolean @default(true)
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items InventoryItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId])
+  @@index([userId, area])
+  @@index([userId, isActive])
+}
+
+enum InventoryStatus {
+  DRAFT
+  IN_STOCK
+  HOLD
+  ARCHIVED
+}
+
+enum ListingReadiness {
+  NEEDS_INTAKE
+  NEEDS_PHOTOS
+  READY_FOR_AI
+  READY_FOR_LISTING
+  READY_TO_PUBLISH
+  LISTED
+}
+
+enum SaleLifecycleStatus {
+  AVAILABLE
+  LISTED
+  RESERVED
+  SOLD
+  SHIPPED
+}
+
+model InventoryItem {
+  id                   String   @id @default(cuid())
+  userId               String
+  sku                  String   @unique
+  skuManuallySet       Boolean  @default(false)
+  title                String?
+  description          String?
+  category             String?
+  condition            String?
+  brand                String?
+  model                String?
+  upc                  String?
+  scanCode             String?
+  costBasisCents       Int      @default(0)
+  weightGrams          Int?
+  dimsCm               Json?
+  binId                String?
+  inventoryStatus      InventoryStatus   @default(DRAFT)
+  listingReadiness     ListingReadiness  @default(NEEDS_INTAKE)
+  saleStatus           SaleLifecycleStatus @default(AVAILABLE)
+
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bin                  Bin?                 @relation(fields: [binId], references: [id])
+  photos               Photo[]
+  listings             Listing[]
+  listingDraft         ListingDraft?
+  aiListingSuggestions AiListingSuggestion[]
+  prices               PriceHistory[]
+  orderItems           OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([inventoryStatus])
+  @@index([listingReadiness])
+  @@index([saleStatus])
+  @@index([brand])
+  @@index([category])
+  @@index([binId])
+  @@index([upc])
+  @@index([scanCode])
+}
+
+enum PhotoUploadStatus {
+  PENDING
+  UPLOADING
+  READY
+  PROCESSING
+  FAILED
+  DELETED
+}
+
+enum PhotoAssetRole {
+  ORIGINAL
+  PROCESSED
+  THUMBNAIL
+}
+
+model Photo {
+  id               String            @id @default(cuid())
+  inventoryItemId  String
+  url              String?
+  storageBucket    String
+  storageKey       String            @unique
+  role             PhotoAssetRole    @default(ORIGINAL)
+  uploadStatus     PhotoUploadStatus @default(PENDING)
+  sort             Int               @default(0)
+  isPrimary        Boolean           @default(false)
+  originalFileName String?
+  mimeType         String?
+  fileSizeBytes    Int?
+  width            Int?
+  height           Int?
+  metadata         Json?
+  uploadedAt       DateTime?
+  deletedAt        DateTime?
+
+  item InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inventoryItemId])
+  @@index([inventoryItemId, deletedAt])
+  @@index([inventoryItemId, sort])
+  @@index([inventoryItemId, isPrimary])
+  @@index([uploadStatus])
+}
+
+enum AiListingSuggestionStatus {
+  GENERATED
+  APPLIED
+  FAILED
+}
+
+model ListingDraft {
+  id                 String   @id @default(cuid())
+  inventoryItemId    String   @unique
+  marketplace        String   @default("ebay")
+  title              String?
+  description        String?  @db.Text
+  category           String?
+  priceCents         Int?
+  itemSpecifics      Json?
+  sourceSuggestionId String?
+  metadata           Json?
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiListingSuggestion {
+  id                  String                    @id @default(cuid())
+  inventoryItemId     String
+  provider            String
+  model               String
+  promptVersion       String
+  status              AiListingSuggestionStatus @default(GENERATED)
+  title               String?
+  description         String?                   @db.Text
+  suggestedCategory   String?
+  suggestedPriceCents Int?
+  itemSpecifics       Json?
+  sourceSnapshot      Json
+  rawResponse         Json?
+  errorMessage        String?
+  generatedAt         DateTime?
+  appliedAt           DateTime?
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inventoryItemId, createdAt])
+  @@index([status])
+}
+
+model Listing {
+  id                   String @id @default(cuid())
+  inventoryItemId      String
+  marketplaceAccountId String
+  marketplace          String
+  marketplaceItemId    String?
+  offerId              String?
+  listingUrl           String?
+  title                String?
+  description          String? @db.Text
+  category             String?
+  itemSpecifics        Json?
+  priceCents           Int
+  quantity             Int    @default(1)
+  shippingProfile      String?
+  status               String @default("inactive")
+
+  inventoryItem InventoryItem      @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  account       MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+  priceHistory  PriceHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inventoryItemId])
+  @@index([marketplaceAccountId])
+  @@index([marketplace, status])
+}
+
+model Order {
+  id                   String   @id @default(cuid())
+  marketplace          String
+  marketplaceOrderId   String   @unique
+  marketplaceAccountId String
+  buyerName            String?
+  buyerAddress         Json?
+  buyerPhone           String?
+  buyerEmail           String?
+  shippingName         String?
+  shippingCompany      String?
+  shippingAddress1     String?
+  shippingAddress2     String?
+  shippingCity         String?
+  shippingState        String?
+  shippingPostalCode   String?
+  shippingCountry      String?
+  totalCents           Int
+  feeCents             Int      @default(0)
+  shippingCents        Int      @default(0)
+  taxCents             Int      @default(0)
+
+  marketplaceAccount MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  items              OrderItem[]
+  shipments          Shipment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([marketplaceAccountId])
+  @@index([marketplace, createdAt])
+}
+
+model OrderItem {
+  id                    String @id @default(cuid())
+  orderId               String
+  listingId             String?
+  inventoryItemId       String?
+  marketplaceLineItemId String?
+  quantity              Int    @default(1)
+  salePriceCents        Int
+
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listing       Listing?       @relation(fields: [listingId], references: [id])
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([listingId])
+  @@index([inventoryItemId])
+  @@index([marketplaceLineItemId])
+}
+
+enum ShipmentStatus {
+  PENDING
+  LABEL_PURCHASED
+  SYNC_QUEUED
+  SYNCED_TO_MARKETPLACE
+  VOIDED
+  ERROR
+}
+
+model Shipment {
+  id                    String         @id @default(cuid())
+  orderId               String
+  provider              String
+  status                ShipmentStatus @default(PENDING)
+  providerShipmentId    String?        @unique
+  providerRateId        String?
+  providerTrackerId     String?
+  carrier               String?
+  service               String?
+  trackingCode          String?
+  trackingStatus        String?
+  labelUrl              String?
+  labelFormat           String?
+  rateAmount            Decimal?       @db.Decimal(10, 2)
+  rateCurrency          String?
+  parcelLength          Decimal?       @db.Decimal(10, 2)
+  parcelWidth           Decimal?       @db.Decimal(10, 2)
+  parcelHeight          Decimal?       @db.Decimal(10, 2)
+  parcelWeightOz        Decimal?       @db.Decimal(10, 2)
+  metadata              Json?
+  purchasedAt           DateTime?
+  syncedToMarketplaceAt DateTime?
+  voidedAt              DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([trackingCode])
+}
+
+model PriceHistory {
+  id              String @id @default(cuid())
+  inventoryItemId String
+  listingId       String?
+  priceCents      Int
+  source          String
+
+  item    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  listing Listing?      @relation(fields: [listingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([inventoryItemId])
+  @@index([listingId])
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  type      String
+  payload   Json
+  status    String   @default("queued")
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type, status])
+}

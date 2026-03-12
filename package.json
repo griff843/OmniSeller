@@ -1,0 +1,35 @@
+{
+  "name": "omniseller",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Omniseller monorepo - Multi-platform reseller management system",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
+    "build": "pnpm --filter db build && pnpm --filter config build && pnpm --filter ui build && pnpm --filter web build && pnpm --filter api build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "db:generate": "pnpm --filter db generate",
+    "db:migrate": "pnpm --filter db migrate",
+    "db:migrate:deploy": "pnpm --filter db migrate:deploy",
+    "db:migrate:status": "pnpm --filter db migrate:status",
+    "db:studio": "pnpm --filter db studio",
+    "db:push": "pnpm --filter db push",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "prettier": "^3.2.5",
+    "turbo": "^1.12.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.4"
+}
