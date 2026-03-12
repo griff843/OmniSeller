@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { ShipmentStatus, prisma } from '@omniseller/db';
 import { ShippingService } from './shipping.service';
 
@@ -42,6 +43,7 @@ describe('ShippingService', () => {
   } as unknown as ConfigService;
 
   const easyPostClient = {
+    isConfigured: jest.fn(() => true),
     createShipment: jest.fn(),
     buyShipment: jest.fn(),
     refundShipment: jest.fn(),
@@ -111,6 +113,24 @@ describe('ShippingService', () => {
         }),
       ],
     });
+  });
+
+  it('reports shipping as unavailable when EasyPost is not configured', async () => {
+    const unavailableService = new ShippingService(
+      configService,
+      {
+        ...easyPostClient,
+        isConfigured: jest.fn(() => false),
+      } as any,
+      shippingSyncQueue as any,
+    );
+
+    await expect(
+      unavailableService.previewRates({
+        orderId: 'ord_1',
+        parcels: [{ length: 10, width: 8, height: 4, weightOz: 16 }],
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('purchases a label and enqueues marketplace sync for ebay orders', async () => {
@@ -194,6 +214,57 @@ describe('ShippingService', () => {
 
     expect(easyPostClient.buyShipment).not.toHaveBeenCalled();
     expect(result).toMatchObject({ id: 'shipment_existing' });
+  });
+
+  it('marks shipment purchase as unavailable when carrier config is missing', async () => {
+    mockedPrisma.order.findUnique.mockResolvedValue({
+      id: 'ord_1',
+      marketplaceAccount: { kind: 'ebay' },
+    } as any);
+    mockedPrisma.shipment.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mockedPrisma.shipment.create.mockResolvedValue({
+      id: 'shipment_pending',
+      metadata: null,
+      status: ShipmentStatus.PENDING,
+    } as any);
+    mockedPrisma.shipment.update.mockResolvedValue({
+      id: 'shipment_pending',
+      metadata: {
+        purchase: {
+          state: 'UNAVAILABLE',
+        },
+      },
+      status: ShipmentStatus.ERROR,
+    } as any);
+
+    easyPostClient.buyShipment.mockRejectedValue(
+      new ServiceUnavailableException(
+        'Shipping is not configured. Set EASYPOST_API_KEY to enable shipping endpoints.',
+      ),
+    );
+
+    await expect(
+      service.purchaseLabel({
+        orderId: 'ord_1',
+        providerShipmentId: 'shp_provider_1',
+        rateId: 'rate_1',
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(mockedPrisma.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: ShipmentStatus.ERROR,
+          metadata: expect.objectContaining({
+            purchase: expect.objectContaining({
+              state: 'UNAVAILABLE',
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it('returns shipments for an order', async () => {

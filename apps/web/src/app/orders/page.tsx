@@ -1,19 +1,50 @@
 import Link from 'next/link';
-import { fetchApi } from '@/lib/api-base';
+import { ApiRequestError, fetchApi } from '@/lib/api-base';
 import { StatusBadge, type BadgeTone } from '@/components/shipping/status-badge';
-import { Order, formatCents, formatShipmentStatus, getLatestShipment, getSyncState } from '@/features/orders/types';
+import { Order, formatCents, formatExecutionState, getLatestShipment } from '@/features/orders/types';
 
 export const dynamic = 'force-dynamic';
 
-function getTone(status: string): BadgeTone {
-  if (status === 'SYNCED_TO_MARKETPLACE' || status === 'LABEL_PURCHASED') return 'success';
-  if (status === 'SYNC_QUEUED') return 'info';
-  if (status === 'ERROR') return 'danger';
+function getTone(status: Order['fulfillment']['status']): BadgeTone {
+  if (status === 'FULFILLED' || status === 'LABEL_PURCHASED') return 'success';
+  if (status === 'SYNC_QUEUED' || status === 'PURCHASE_REQUESTED') return 'info';
+  if (status === 'FAILED') return 'danger';
+  if (status === 'UNAVAILABLE') return 'warning';
   return 'neutral';
 }
 
 export default async function OrdersPage() {
-  const orders = await fetchApi<Order[]>('/orders');
+  let orders: Order[];
+
+  try {
+    orders = await fetchApi<Order[]>('/orders');
+  } catch (error) {
+    const message =
+      error instanceof ApiRequestError
+        ? `Orders could not be loaded from the API (${error.status}). Confirm the API server and database are running, then refresh.`
+        : 'Orders could not be loaded. Confirm the API server and database are running, then refresh.';
+
+    return (
+      <main className="min-h-screen bg-slate-100 px-6 py-8">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Operations</p>
+              <h1 className="mt-2 text-3xl font-semibold text-slate-950">Orders and fulfillment</h1>
+            </div>
+            <Link href="/inventory" className="text-sm font-medium text-sky-700 underline">
+              Back to inventory
+            </Link>
+          </div>
+          <section className="rounded-3xl border border-rose-200 bg-white p-8 shadow-sm">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-rose-600">Orders unavailable</p>
+            <h2 className="mt-3 text-3xl font-semibold text-slate-950">Order data could not be loaded right now.</h2>
+            <p className="mt-3 max-w-2xl text-sm text-slate-600">{message}</p>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-8">
@@ -53,7 +84,6 @@ export default async function OrdersPage() {
                 ) : (
                   orders.map((order) => {
                     const shipment = getLatestShipment(order);
-                    const syncState = getSyncState(shipment);
 
                     return (
                       <tr key={order.id} className="hover:bg-slate-50">
@@ -78,15 +108,18 @@ export default async function OrdersPage() {
                         <td className="px-4 py-4 align-top">
                           {shipment ? (
                             <div className="flex flex-col gap-2">
-                              <StatusBadge tone={getTone(shipment.status)}>
-                                {formatShipmentStatus(shipment.status)}
+                              <StatusBadge tone={getTone(shipment.workflow.status)}>
+                                {formatExecutionState(shipment.workflow.status)}
                               </StatusBadge>
-                              <StatusBadge tone={syncState === 'FAILED' || syncState === 'QUEUE_FAILED' ? 'danger' : 'info'}>
-                                Sync {syncState.toLowerCase().replace(/_/g, ' ')}
-                              </StatusBadge>
+                              <div className="text-xs text-slate-500">{shipment.workflow.message}</div>
                             </div>
                           ) : (
-                            <StatusBadge tone="neutral">Unfulfilled</StatusBadge>
+                            <div className="flex flex-col gap-2">
+                              <StatusBadge tone={getTone(order.fulfillment.status)}>
+                                {formatExecutionState(order.fulfillment.status)}
+                              </StatusBadge>
+                              <div className="text-xs text-slate-500">{order.fulfillment.message}</div>
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-4 align-top text-slate-700">{shipment?.trackingCode ?? '--'}</td>

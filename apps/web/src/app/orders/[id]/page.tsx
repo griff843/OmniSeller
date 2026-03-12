@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { FulfillmentPanel } from '@/components/shipping/fulfillment-panel';
-import { fetchApi } from '@/lib/api-base';
+import { ApiRequestError, fetchApi } from '@/lib/api-base';
 import { Order, formatCents } from '@/features/orders/types';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,32 @@ export default async function OrderDetailPage({ params }: { params: { id: string
 
   try {
     order = await fetchApi<Order>(`/orders/${params.id}`);
-  } catch {
-    notFound();
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) {
+      notFound();
+    }
+
+    const message =
+      error instanceof ApiRequestError
+        ? `Order data could not be loaded from the API (${error.status}). Confirm the API server and database are running, then refresh.`
+        : 'Order data could not be loaded. Confirm the API server and database are running, then refresh.';
+
+    return (
+      <main className="min-h-screen bg-slate-100 px-6 py-8">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div>
+            <Link href="/orders" className="text-sm font-medium text-sky-700 underline">
+              Back to orders
+            </Link>
+          </div>
+          <section className="rounded-3xl border border-rose-200 bg-white p-8 shadow-sm">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-rose-600">Order detail unavailable</p>
+            <h1 className="mt-3 text-3xl font-semibold text-slate-950">This order could not be loaded right now.</h1>
+            <p className="mt-3 max-w-2xl text-sm text-slate-600">{message}</p>
+          </section>
+        </div>
+      </main>
+    );
   }
 
   return (
