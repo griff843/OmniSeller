@@ -141,6 +141,16 @@ enum SaleLifecycleStatus {
   SHIPPED
 }
 
+enum PublishExecutionStatus {
+  NOT_REQUESTED
+  BLOCKED
+  QUEUED
+  PROCESSING
+  UNAVAILABLE
+  FAILED
+  PUBLISHED
+}
+
 model InventoryItem {
   id                   String   @id @default(cuid())
   userId               String
@@ -161,6 +171,14 @@ model InventoryItem {
   inventoryStatus      InventoryStatus   @default(DRAFT)
   listingReadiness     ListingReadiness  @default(NEEDS_INTAKE)
   saleStatus           SaleLifecycleStatus @default(AVAILABLE)
+  publishStatus        PublishExecutionStatus @default(NOT_REQUESTED)
+  publishMarketplace   String?
+  publishRequestedAt   DateTime?
+  publishQueuedAt      DateTime?
+  publishStartedAt     DateTime?
+  publishedAt          DateTime?
+  publishFailedAt      DateTime?
+  publishError         String?
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   bin                  Bin?                 @relation(fields: [binId], references: [id])
@@ -178,6 +196,7 @@ model InventoryItem {
   @@index([inventoryStatus])
   @@index([listingReadiness])
   @@index([saleStatus])
+  @@index([publishStatus])
   @@index([brand])
   @@index([category])
   @@index([binId])

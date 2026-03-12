@@ -13,6 +13,7 @@ import {
   buildReadinessBlockers,
   determineListingReadiness,
   determineSaleStatus,
+  isPublishReady,
   normalizeSku,
   type InventoryStatusValue,
   type SaleLifecycleStatusValue,
@@ -20,6 +21,7 @@ import {
 import { InventoryScannerService } from './inventory-scanner.service';
 import { PhotoProcessingService } from './photo-processing.service';
 import { PhotoStoragePathService } from './photo-storage-path.service';
+import { getPublishStateMessage, isPublishInFlight } from '../listings/publish-state';
 
 const DEV_USER_ID = 'dev-user';
 
@@ -507,23 +509,36 @@ export class InventoryService {
     const primaryPhoto = photos.find((photo) => photo.isPrimary) ?? photos[0] ?? null;
     const readyPhotoCount = photos.filter((photo) => photo.uploadStatus === 'READY' && Boolean(photo.url)).length;
     const latestSuggestion = item.aiListingSuggestions?.[0] ?? null;
+    const hasDraft = Boolean(item.listingDraft);
     const hasPublishableDraft = Boolean(
       item.listingDraft?.title &&
       item.listingDraft?.description &&
       item.listingDraft?.category &&
       (item.listingDraft?.priceCents ?? null) !== null,
     );
-
-    const blockers = buildReadinessBlockers({
+    const snapshot = {
       title: item.title ?? null,
       condition: item.condition ?? null,
       readyPhotoCount,
       hasSuggestion: Boolean(latestSuggestion),
-      hasDraft: Boolean(item.listingDraft),
+      hasDraft,
       hasPublishableDraft,
       hasActiveListing: (item.listings ?? []).length > 0,
       saleStatus: (item.saleStatus ?? 'AVAILABLE') as SaleLifecycleStatusValue,
-    });
+    } as const;
+
+    const blockers = buildReadinessBlockers(snapshot);
+    const publishState = {
+      status: item.publishStatus ?? 'NOT_REQUESTED',
+      marketplace: item.publishMarketplace ?? 'ebay',
+      requestedAt: item.publishRequestedAt ?? null,
+      queuedAt: item.publishQueuedAt ?? null,
+      startedAt: item.publishStartedAt ?? null,
+      publishedAt: item.publishedAt ?? null,
+      failedAt: item.publishFailedAt ?? null,
+      error: item.publishError ?? null,
+    };
+    const canRequestPublish = isPublishReady(snapshot) && !isPublishInFlight(publishState.status);
 
     return {
       id: item.id,
@@ -558,10 +573,22 @@ export class InventoryService {
           }
         : null,
       listingCount: item.listings?.length ?? 0,
+      publishState: {
+        ...publishState,
+        message: getPublishStateMessage(publishState),
+        canRetry: ['NOT_REQUESTED', 'BLOCKED', 'UNAVAILABLE', 'FAILED'].includes(publishState.status),
+        isInFlight: isPublishInFlight(publishState.status),
+      },
       workflow: {
         canGenerateAi: ['READY_FOR_AI', 'READY_FOR_LISTING', 'READY_TO_PUBLISH', 'LISTED'].includes(item.listingReadiness ?? 'NEEDS_INTAKE'),
-        canEditDraft: readyPhotoCount > 0,
-        canPublish: hasPublishableDraft,
+        canEditDraft: Boolean(item.title?.trim()) && Boolean(item.condition?.trim()),
+        canPublish: isPublishReady(snapshot),
+        canRequestPublish,
+        publishActionBlockedReason: isPublishReady(snapshot)
+          ? isPublishInFlight(publishState.status)
+            ? getPublishStateMessage(publishState)
+            : null
+          : blockers[0] ?? null,
         readinessBlockers: blockers,
       },
       scanner: this.inventoryScannerService.describeFutureLookupBoundary(),

@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AiListingSuggestionStatus, prisma } from '@omniseller/db';
 import { ApplyAiSuggestionDto } from './dto/apply-ai-suggestion.dto';
@@ -18,7 +19,9 @@ import {
   buildReadinessBlockers,
   determineListingReadiness,
   determineSaleStatus,
+  isPublishReady,
 } from '../inventory/inventory-workflow-state';
+import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 
 @Injectable()
 export class ListingAiService {
@@ -53,6 +56,18 @@ export class ListingAiService {
 
   async generateSuggestion(inventoryItemId: string): Promise<unknown> {
     const item = await this.requireInventoryItem(inventoryItemId);
+    const readyPhotoCount = (item.photos ?? []).filter((photo: any) => Boolean(photo.url)).length;
+
+    if (!this.provider.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'AI listing generation is unavailable in this environment. Add OPENAI_API_KEY to enable it.',
+      );
+    }
+
+    if (readyPhotoCount === 0) {
+      throw new BadRequestException('At least one ready photo is required before generating an AI listing.');
+    }
+
     const sourceSnapshot = this.buildSourceSnapshot(item);
 
     try {
@@ -281,20 +296,21 @@ export class ListingAiService {
       item.listingDraft?.priceCents !== undefined,
     );
     const hasActiveListing = (item.listings ?? []).length > 0;
+    const snapshot = {
+      title: item.title,
+      condition: item.condition,
+      readyPhotoCount,
+      hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
+      hasDraft: Boolean(item.listingDraft),
+      hasPublishableDraft,
+      hasActiveListing,
+      saleStatus: item.saleStatus ?? 'AVAILABLE',
+    } as const;
 
     await prisma.inventoryItem.update({
       where: { id: inventoryItemId },
       data: {
-        listingReadiness: determineListingReadiness({
-          title: item.title,
-          condition: item.condition,
-          readyPhotoCount,
-          hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
-          hasDraft: Boolean(item.listingDraft),
-          hasPublishableDraft,
-          hasActiveListing,
-          saleStatus: item.saleStatus ?? 'AVAILABLE',
-        }),
+        listingReadiness: determineListingReadiness(snapshot),
         saleStatus: determineSaleStatus(item.saleStatus ?? 'AVAILABLE', hasActiveListing),
       },
     } as any);
@@ -350,22 +366,66 @@ export class ListingAiService {
       item.listingDraft?.priceCents !== null &&
       item.listingDraft?.priceCents !== undefined,
     );
+    const hasDraft = Boolean(item.listingDraft);
+    const hasActiveListing = (item.listings ?? []).length > 0;
+    const snapshot = {
+      title: item.title,
+      condition: item.condition,
+      readyPhotoCount,
+      hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
+      hasDraft,
+      hasPublishableDraft,
+      hasActiveListing,
+      saleStatus: item.saleStatus ?? 'AVAILABLE',
+    } as const;
+    const draftMissingFields = [
+      !item.listingDraft?.title?.trim() ? 'title' : null,
+      !item.listingDraft?.description?.trim() ? 'description' : null,
+      !item.listingDraft?.category?.trim() ? 'category' : null,
+      item.listingDraft?.priceCents === null || item.listingDraft?.priceCents === undefined ? 'price' : null,
+    ].filter((value): value is string => value !== null);
+    const publishState = {
+      status: item.publishStatus ?? 'NOT_REQUESTED',
+      marketplace: item.publishMarketplace ?? 'ebay',
+      requestedAt: item.publishRequestedAt ?? null,
+      queuedAt: item.publishQueuedAt ?? null,
+      startedAt: item.publishStartedAt ?? null,
+      publishedAt: item.publishedAt ?? null,
+      failedAt: item.publishFailedAt ?? null,
+      error: item.publishError ?? null,
+    };
+    const canPublish = isPublishReady(snapshot);
+    const canRequestPublish = canPublish && !isPublishInFlight(publishState.status);
 
     return {
       listingReadiness: item.listingReadiness ?? 'NEEDS_INTAKE',
       saleStatus: item.saleStatus ?? 'AVAILABLE',
-      canGenerateAi: readyPhotoCount > 0,
-      canPublish: hasPublishableDraft,
-      readinessBlockers: buildReadinessBlockers({
-        title: item.title,
-        condition: item.condition,
-        readyPhotoCount,
-        hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
-        hasDraft: Boolean(item.listingDraft),
-        hasPublishableDraft,
-        hasActiveListing: (item.listings ?? []).length > 0,
-        saleStatus: item.saleStatus ?? 'AVAILABLE',
-      }),
+      aiConfigured: this.provider.isConfigured(),
+      canGenerateAi: this.provider.isConfigured() && readyPhotoCount > 0,
+      aiBlockedReason: !this.provider.isConfigured()
+        ? 'AI listing generation is unavailable in this environment. Add OPENAI_API_KEY to enable it.'
+        : readyPhotoCount === 0
+          ? 'Upload at least one ready photo before generating an AI listing.'
+          : null,
+      hasDraft,
+      hasPublishableDraft,
+      draftState: hasActiveListing ? 'LISTED' : !hasDraft ? 'NONE' : hasPublishableDraft ? 'READY' : 'INCOMPLETE',
+      draftMissingFields,
+      canPublish,
+      canRequestPublish,
+      publishBlockedReason: canPublish ? null : buildReadinessBlockers(snapshot)[0] ?? null,
+      readinessBlockers: buildReadinessBlockers(snapshot),
+      publishState: {
+        ...publishState,
+        message: getPublishStateMessage(publishState),
+        canRetry: ['NOT_REQUESTED', 'BLOCKED', 'UNAVAILABLE', 'FAILED'].includes(publishState.status),
+        isInFlight: isPublishInFlight(publishState.status),
+      },
+      publishActionBlockedReason: canPublish
+        ? isPublishInFlight(publishState.status)
+          ? getPublishStateMessage(publishState)
+          : null
+        : buildReadinessBlockers(snapshot)[0] ?? null,
     };
   }
 }

@@ -69,8 +69,16 @@ export function determineSaleStatus(currentStatus: SaleLifecycleStatusValue, has
   return hasActiveListing ? 'LISTED' : 'AVAILABLE';
 }
 
+export function isPublishReady(snapshot: InventoryWorkflowSnapshot): boolean {
+  return determineListingReadiness(snapshot) === 'READY_TO_PUBLISH';
+}
+
 export function buildReadinessBlockers(snapshot: InventoryWorkflowSnapshot): string[] {
   const blockers: string[] = [];
+
+  if (snapshot.hasActiveListing) {
+    blockers.push('This item already has a listing record. Update the existing listing instead of publishing again.');
+  }
 
   if (!snapshot.title?.trim()) {
     blockers.push('Add an item title before generating listing work.');
@@ -86,6 +94,10 @@ export function buildReadinessBlockers(snapshot: InventoryWorkflowSnapshot): str
 
   if (!snapshot.hasPublishableDraft) {
     blockers.push('Complete a draft title, description, category, and price before publish.');
+  }
+
+  if (snapshot.saleStatus === 'RESERVED' || snapshot.saleStatus === 'SOLD' || snapshot.saleStatus === 'SHIPPED') {
+    blockers.push(`This item cannot be published while its sale state is ${snapshot.saleStatus.toLowerCase()}.`);
   }
 
   return blockers;
