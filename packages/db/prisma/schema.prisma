@@ -87,12 +87,45 @@ model MarketplaceAccount {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   listings  Listing[]
   orders    Order[]
+  syncStates MarketplaceSyncState[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([kind])
+}
+
+enum MarketplaceSyncResource {
+  LISTINGS
+  ORDERS
+}
+
+enum MarketplaceSyncStatus {
+  IDLE
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model MarketplaceSyncState {
+  id                   String                  @id @default(cuid())
+  marketplaceAccountId String
+  resource             MarketplaceSyncResource
+  status               MarketplaceSyncStatus   @default(IDLE)
+  cursor               String?
+  lastStartedAt        DateTime?
+  lastFinishedAt       DateTime?
+  lastSyncedAt         DateTime?
+  lastError            String?                 @db.Text
+
+  account MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([marketplaceAccountId, resource])
+  @@index([resource, status])
 }
 
 model Bin {
@@ -329,6 +362,7 @@ model Listing {
   @@index([inventoryItemId])
   @@index([marketplaceAccountId])
   @@index([marketplace, status])
+  @@unique([marketplaceAccountId, marketplaceItemId])
 }
 
 model Order {
@@ -384,6 +418,7 @@ model OrderItem {
   @@index([listingId])
   @@index([inventoryItemId])
   @@index([marketplaceLineItemId])
+  @@unique([orderId, marketplaceLineItemId])
 }
 
 enum ShipmentStatus {
