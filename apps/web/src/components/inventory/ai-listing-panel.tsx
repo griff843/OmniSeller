@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import { Button } from '@omniseller/ui';
 import { StatusBadge, type BadgeTone } from '@/components/shipping/status-badge';
 import {
@@ -169,6 +169,17 @@ export function AiListingPanel({
     setSpecifics(toSpecificEntries(workspace.draft?.itemSpecifics));
   }, [workspace]);
 
+  const refreshWorkspace = useCallback(async () => {
+    const response = await fetch(`/api/listings/${inventoryItemId}/ai`, { cache: 'no-store' });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, 'Failed to refresh listing workspace'));
+    }
+
+    const nextWorkspace = (await response.json()) as AiListingWorkspace;
+    startRefreshTransition(() => setWorkspace(nextWorkspace));
+  }, [inventoryItemId]);
+
   useEffect(() => {
     function handleInventoryRefresh(event: Event) {
       const customEvent = event as CustomEvent<{ inventoryItemId?: string }>;
@@ -181,18 +192,7 @@ export function AiListingPanel({
 
     window.addEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
     return () => window.removeEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
-  }, [inventoryItemId]);
-
-  async function refreshWorkspace() {
-    const response = await fetch(`/api/listings/${inventoryItemId}/ai`, { cache: 'no-store' });
-
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response, 'Failed to refresh listing workspace'));
-    }
-
-    const nextWorkspace = (await response.json()) as AiListingWorkspace;
-    startRefreshTransition(() => setWorkspace(nextWorkspace));
-  }
+  }, [inventoryItemId, refreshWorkspace]);
 
   async function generateSuggestion() {
     if (!workspace.workflow.canGenerateAi) {

@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CreateShippingRatesDto } from './dto/create-shipping-rates.dto';
 import { PurchaseLabelDto } from './dto/purchase-label.dto';
-import { VoidLabelDto } from './dto/void-label.dto';
 import { ShippingService } from './shipping.service';
 
 @Controller('shipping')
@@ -19,7 +18,7 @@ export class ShippingController {
   }
 
   @Post(':shipmentId/void')
-  voidLabel(@Param('shipmentId') shipmentId: string, @Body() _dto?: VoidLabelDto): Promise<unknown> {
+  voidLabel(@Param('shipmentId') shipmentId: string): Promise<unknown> {
     return this.shippingService.voidLabel(shipmentId);
   }
 

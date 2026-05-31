@@ -52,6 +52,7 @@ docker compose up -d postgres redis
 ```powershell
 pnpm db:generate
 pnpm db:migrate:deploy
+pnpm db:seed
 ```
 
 5. Start the apps
@@ -91,6 +92,8 @@ Remove-Item Env:OMNISELLER_SKIP_PRISMA_DEV_GUARD
 pnpm db:generate
 pnpm db:migrate:status
 pnpm db:migrate:deploy
+pnpm db:seed
+pnpm db:reset:local
 pnpm db:push
 pnpm db:studio
 pnpm dev
@@ -103,3 +106,4 @@ pnpm --filter web typecheck
 - Shipping works locally without EasyPost credentials, but shipping endpoints remain disabled until `EASYPOST_API_KEY` is set.
 - Hosted Supabase DB credentials are not required for local development.
 - If you later enable Supabase storage, keep it separate from the local database path.
+- Deterministic local smoke fixtures are documented in `docs/runbooks/LOCAL_SMOKE_FIXTURES.md`.

@@ -34,7 +34,7 @@ export class InventoryService {
     private readonly inventoryScannerService: InventoryScannerService,
   ) {}
 
-  async list(query: ListInventoryQueryDto = {}, _userId?: string): Promise<unknown> {
+  async list(query: ListInventoryQueryDto = {}): Promise<unknown> {
     const normalizedQuery = query.q?.trim();
     const normalizedBinCode = query.binCode ? normalizeSku(query.binCode) : undefined;
 

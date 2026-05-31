@@ -11,6 +11,7 @@
     "migrate:deploy": "node ./scripts/run-prisma.cjs migrate deploy",
     "migrate:status": "node ./scripts/run-prisma.cjs migrate status",
     "push": "node ./scripts/run-prisma.cjs db push",
+    "reset": "node ./scripts/run-prisma.cjs migrate reset --force --skip-seed && pnpm run generate && pnpm run seed",
     "studio": "node ./scripts/run-prisma.cjs studio",
     "seed": "tsx prisma/seed.ts",
     "clean": "rm -rf node_modules .turbo"

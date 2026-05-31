@@ -41,7 +41,8 @@ export class EbayPublishProvider implements MarketplacePublishProvider {
     };
   }
 
-  async publishDraft(_: PublishDraftInput): Promise<PublishDraftResult> {
+  async publishDraft(input: PublishDraftInput): Promise<PublishDraftResult> {
+    void input;
     throw new ServiceUnavailableException(
       'eBay publish transport is not configured for this local environment yet.',
     );

@@ -1,3 +1,3 @@
 module.exports = {
-  extends: ['@omniseller/config/eslint-nextjs.js'],
+  extends: [require.resolve('../config/eslint-nextjs.js')],
 };

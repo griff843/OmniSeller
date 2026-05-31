@@ -20,6 +20,8 @@
     "db:migrate:status": "pnpm --filter db migrate:status",
     "db:studio": "pnpm --filter db studio",
     "db:push": "pnpm --filter db push",
+    "db:seed": "pnpm --filter db seed",
+    "db:reset:local": "pnpm --filter db reset",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
   },
   "devDependencies": {

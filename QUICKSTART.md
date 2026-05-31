@@ -16,6 +16,7 @@ Copy-Item .env.example .env
 docker compose up -d postgres redis
 pnpm db:generate
 pnpm db:migrate:deploy
+pnpm db:seed
 pnpm dev
 ```
 
@@ -67,11 +68,19 @@ Remove-Item Env:OMNISELLER_SKIP_PRISMA_DEV_GUARD
 pnpm db:generate
 pnpm db:migrate:status
 pnpm db:migrate:deploy
+pnpm db:seed
+pnpm db:reset:local
 pnpm db:push
 pnpm db:studio
 ```
 
 Use `pnpm db:push` only as a local recovery/developer sync tool. The intended fresh-machine bootstrap path is `pnpm db:migrate:deploy`.
+
+## Local smoke fixtures
+
+Run `pnpm db:seed` to create repeatable local smoke data for inventory, listings, photos, publish readiness, and orders/shipping. For a full local rebuild with seeded fixtures, run `pnpm db:reset:local`.
+
+Run `pnpm db:reset:local` with OmniSeller dev servers stopped so Prisma can rebuild the local database cleanly before you restart `pnpm dev`.
 
 ## Optional services
 
