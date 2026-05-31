@@ -368,7 +368,7 @@ model Listing {
 model Order {
   id                   String   @id @default(cuid())
   marketplace          String
-  marketplaceOrderId   String   @unique
+  marketplaceOrderId   String
   marketplaceAccountId String
   buyerName            String?
   buyerAddress         Json?
@@ -396,6 +396,7 @@ model Order {
 
   @@index([marketplaceAccountId])
   @@index([marketplace, createdAt])
+  @@unique([marketplaceAccountId, marketplaceOrderId])
 }
 
 model OrderItem {

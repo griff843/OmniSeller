@@ -15,20 +15,23 @@ jest.mock('@omniseller/db', () => ({
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      upsert: jest.fn(),
     },
     inventoryItem: {
       create: jest.fn(),
       update: jest.fn(),
     },
     order: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      upsert: jest.fn(),
     },
     orderItem: {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      upsert: jest.fn(),
     },
   },
 }));
@@ -71,8 +74,8 @@ describe('EbayImportService', () => {
 
   it('imports active listings into placeholder inventory and listings idempotently', async () => {
     prisma.listing.findFirst.mockResolvedValue(null);
-    prisma.inventoryItem.create.mockResolvedValue({ id: 'item_1' });
-    prisma.listing.create.mockResolvedValue({ id: 'listing_1' });
+    prisma.inventoryItem.create.mockResolvedValue({ id: 'item_1', saleStatus: 'LISTED' });
+    prisma.listing.upsert.mockResolvedValue({ id: 'listing_1' });
 
     const results = await service.importSnapshot(account as any, {
       listings: [
@@ -100,15 +103,24 @@ describe('EbayImportService', () => {
         publishStatus: 'PUBLISHED',
       }),
     });
-    expect(prisma.listing.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(prisma.listing.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          inventoryItemId: 'item_1',
+          marketplaceAccountId: 'acct_1',
+          marketplaceItemId: '123-ABC',
+          status: 'active',
+          priceCents: 4200,
+        }),
+        update: expect.objectContaining({
         inventoryItemId: 'item_1',
         marketplaceAccountId: 'acct_1',
         marketplaceItemId: '123-ABC',
         status: 'active',
         priceCents: 4200,
       }),
-    });
+      }),
+    );
     expect(prisma.inventoryItem.update).toHaveBeenCalledWith({
       where: { id: 'item_1' },
       data: expect.objectContaining({
@@ -127,14 +139,14 @@ describe('EbayImportService', () => {
   });
 
   it('upserts imported orders and marks linked inventory sold', async () => {
-    prisma.order.findUnique.mockResolvedValue(null);
-    prisma.order.create.mockResolvedValue({ id: 'order_1' });
+    prisma.order.findFirst.mockResolvedValue(null);
+    prisma.order.upsert.mockResolvedValue({ id: 'order_1' });
     prisma.listing.findFirst.mockResolvedValue({
       id: 'listing_1',
       inventoryItemId: 'item_1',
       inventoryItem: { id: 'item_1' },
     });
-    prisma.orderItem.findFirst.mockResolvedValue(null);
+    prisma.orderItem.upsert.mockResolvedValue({ id: 'line_1' });
 
     await service.importSnapshot(account as any, {
       orders: [
@@ -157,22 +169,38 @@ describe('EbayImportService', () => {
       ],
     });
 
-    expect(prisma.order.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(prisma.order.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          marketplaceAccountId_marketplaceOrderId: {
+            marketplaceAccountId: 'acct_1',
+            marketplaceOrderId: 'ORDER-1',
+          },
+        },
+        create: expect.objectContaining({
         marketplace: 'ebay',
         marketplaceOrderId: 'ORDER-1',
         marketplaceAccountId: 'acct_1',
         totalCents: 5000,
       }),
-    });
-    expect(prisma.orderItem.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+      }),
+    );
+    expect(prisma.orderItem.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          orderId_marketplaceLineItemId: {
+            orderId: 'order_1',
+            marketplaceLineItemId: 'LINE-1',
+          },
+        },
+        create: expect.objectContaining({
         orderId: 'order_1',
         listingId: 'listing_1',
         inventoryItemId: 'item_1',
         marketplaceLineItemId: 'LINE-1',
       }),
-    });
+      }),
+    );
     expect(prisma.inventoryItem.update).toHaveBeenCalledWith({
       where: { id: 'item_1' },
       data: expect.objectContaining({
@@ -184,6 +212,74 @@ describe('EbayImportService', () => {
       where: { id: 'listing_1' },
       data: { status: 'sold' },
     });
+  });
+
+  it('does not regress sold inventory when an existing eBay listing imports as ended', async () => {
+    prisma.listing.findFirst.mockResolvedValue({
+      id: 'listing_1',
+      inventoryItemId: 'item_1',
+      inventoryItem: {
+        id: 'item_1',
+        saleStatus: 'SOLD',
+        publishStatus: 'PUBLISHED',
+      },
+    });
+    prisma.listing.upsert.mockResolvedValue({ id: 'listing_1' });
+
+    await service.importSnapshot(account as any, {
+      listings: [
+        {
+          marketplaceItemId: '123-ABC',
+          title: 'Sold jacket',
+          priceCents: 4200,
+          quantity: 0,
+          status: 'ended',
+        },
+      ],
+    });
+
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item_1' },
+        data: expect.objectContaining({
+          saleStatus: 'AVAILABLE',
+          publishStatus: 'NOT_REQUESTED',
+        }),
+      }),
+    );
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('scopes existing order lookup and upsert to the importing marketplace account', async () => {
+    prisma.order.findFirst.mockResolvedValue(null);
+    prisma.order.upsert.mockResolvedValue({ id: 'order_1' });
+
+    await service.importSnapshot(account as any, {
+      orders: [
+        {
+          marketplaceOrderId: 'ORDER-1',
+          totalCents: 5000,
+          items: [],
+        },
+      ],
+    });
+
+    expect(prisma.order.findFirst).toHaveBeenCalledWith({
+      where: {
+        marketplaceOrderId: 'ORDER-1',
+        marketplaceAccountId: 'acct_1',
+      },
+    });
+    expect(prisma.order.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          marketplaceAccountId_marketplaceOrderId: {
+            marketplaceAccountId: 'acct_1',
+            marketplaceOrderId: 'ORDER-1',
+          },
+        },
+      }),
+    );
   });
 
   it('records sync status around provider-backed manual syncs', async () => {

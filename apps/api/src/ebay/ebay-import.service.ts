@@ -12,6 +12,7 @@ import {
 } from './ebay-import.types';
 
 const RESOURCE_LIST: EbayImportResource[] = ['LISTINGS', 'ORDERS'];
+const TERMINAL_SALE_STATES = new Set(['RESERVED', 'SOLD', 'SHIPPED']);
 
 @Injectable()
 export class EbayImportService {
@@ -120,18 +121,24 @@ export class EbayImportService {
         existingListing?.inventoryItem ?? (await this.createPlaceholderInventoryItem(account, imported));
       const listingData = this.toListingData(imported, inventoryItem.id, account.id);
 
+      const listing = await prisma.listing.upsert({
+        where: {
+          marketplaceAccountId_marketplaceItemId: {
+            marketplaceAccountId: account.id,
+            marketplaceItemId: imported.marketplaceItemId,
+          },
+        },
+        create: listingData,
+        update: listingData,
+      } as any);
+
       if (existingListing) {
-        await prisma.listing.update({
-          where: { id: existingListing.id },
-          data: listingData,
-        } as any);
         updated += 1;
       } else {
-        await prisma.listing.create({ data: listingData } as any);
         created += 1;
       }
 
-      await this.applyListingLifecycle(inventoryItem.id, imported);
+      await this.applyListingLifecycle(inventoryItem, imported, listing.id);
     }
 
     return this.markSyncCompleted(account.id, 'LISTINGS', listings.length, created, updated, cursor);
@@ -142,16 +149,23 @@ export class EbayImportService {
     let updated = 0;
 
     for (const imported of orders) {
-      const existingOrder = await prisma.order.findUnique({
-        where: { marketplaceOrderId: imported.marketplaceOrderId },
+      const existingOrder = await prisma.order.findFirst({
+        where: {
+          marketplaceOrderId: imported.marketplaceOrderId,
+          marketplaceAccountId: account.id,
+        },
       } as any);
       const orderData = this.toOrderData(imported, account.id);
-      const order = existingOrder
-        ? await prisma.order.update({
-            where: { id: existingOrder.id },
-            data: orderData,
-          } as any)
-        : await prisma.order.create({ data: orderData } as any);
+      const order = await prisma.order.upsert({
+        where: {
+          marketplaceAccountId_marketplaceOrderId: {
+            marketplaceAccountId: account.id,
+            marketplaceOrderId: imported.marketplaceOrderId,
+          },
+        },
+        create: orderData,
+        update: orderData,
+      } as any);
 
       existingOrder ? (updated += 1) : (created += 1);
 
@@ -181,21 +195,16 @@ export class EbayImportService {
       quantity: item.quantity ?? 1,
       salePriceCents: item.salePriceCents,
     };
-    const existing = await prisma.orderItem.findFirst({
+    await prisma.orderItem.upsert({
       where: {
-        orderId,
-        marketplaceLineItemId: item.marketplaceLineItemId,
+        orderId_marketplaceLineItemId: {
+          orderId,
+          marketplaceLineItemId: item.marketplaceLineItemId,
+        },
       },
+      create: data,
+      update: data,
     } as any);
-
-    if (existing) {
-      await prisma.orderItem.update({
-        where: { id: existing.id },
-        data,
-      } as any);
-    } else {
-      await prisma.orderItem.create({ data } as any);
-    }
 
     if (listing?.inventoryItemId) {
       await prisma.inventoryItem.update({
@@ -231,16 +240,28 @@ export class EbayImportService {
     } as any);
   }
 
-  private async applyListingLifecycle(inventoryItemId: string, listing: ImportedEbayListing) {
+  private async applyListingLifecycle(inventoryItem: any, listing: ImportedEbayListing, listingId: string) {
     const listed = listing.status === 'active';
     const sold = listing.status === 'sold';
 
+    if (!listed && !sold) {
+      await prisma.listing.update({
+        where: { id: listingId },
+        data: { status: listing.status },
+      } as any);
+      return;
+    }
+
+    if (TERMINAL_SALE_STATES.has(inventoryItem.saleStatus)) {
+      return;
+    }
+
     await prisma.inventoryItem.update({
-      where: { id: inventoryItemId },
+      where: { id: inventoryItem.id },
       data: {
-        listingReadiness: listed || sold ? 'LISTED' : 'READY_FOR_LISTING',
-        saleStatus: sold ? 'SOLD' : listed ? 'LISTED' : 'AVAILABLE',
-        publishStatus: listed || sold ? 'PUBLISHED' : 'NOT_REQUESTED',
+        listingReadiness: 'LISTED',
+        saleStatus: sold ? 'SOLD' : 'LISTED',
+        publishStatus: 'PUBLISHED',
         publishMarketplace: 'ebay',
         publishedAt: listing.publishedAt ? new Date(listing.publishedAt) : undefined,
       },
