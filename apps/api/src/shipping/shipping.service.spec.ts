@@ -78,6 +78,7 @@ describe('ShippingService', () => {
       buyerName: 'Buyer Name',
       buyerPhone: null,
       buyerEmail: null,
+      marketplaceAccount: { userId: 'dev-user' },
     } as any);
 
     easyPostClient.createShipment.mockResolvedValue({
@@ -96,10 +97,13 @@ describe('ShippingService', () => {
       ],
     });
 
-    const result = await service.previewRates({
-      orderId: 'ord_1',
-      parcels: [{ length: 10, width: 8, height: 4, weightOz: 16 }],
-    });
+    const result = await service.previewRates(
+      {
+        orderId: 'ord_1',
+        parcels: [{ length: 10, width: 8, height: 4, weightOz: 16 }],
+      },
+      'dev-user',
+    );
 
     expect(easyPostClient.createShipment).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
@@ -126,17 +130,20 @@ describe('ShippingService', () => {
     );
 
     await expect(
-      unavailableService.previewRates({
-        orderId: 'ord_1',
-        parcels: [{ length: 10, width: 8, height: 4, weightOz: 16 }],
-      }),
+      unavailableService.previewRates(
+        {
+          orderId: 'ord_1',
+          parcels: [{ length: 10, width: 8, height: 4, weightOz: 16 }],
+        },
+        'dev-user',
+      ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('purchases a label and enqueues marketplace sync for ebay orders', async () => {
     mockedPrisma.order.findUnique.mockResolvedValue({
       id: 'ord_ebay',
-      marketplaceAccount: { kind: 'ebay' },
+      marketplaceAccount: { kind: 'ebay', userId: 'dev-user' },
     } as any);
     mockedPrisma.shipment.findFirst
       .mockResolvedValueOnce(null)
@@ -179,12 +186,15 @@ describe('ShippingService', () => {
       messages: [],
     });
 
-    const result = await service.purchaseLabel({
-      orderId: 'ord_ebay',
-      providerShipmentId: 'shp_provider_1',
-      rateId: 'rate_1',
-      labelFormat: 'PDF',
-    });
+    const result = await service.purchaseLabel(
+      {
+        orderId: 'ord_ebay',
+        providerShipmentId: 'shp_provider_1',
+        rateId: 'rate_1',
+        labelFormat: 'PDF',
+      },
+      'dev-user',
+    );
 
     expect(mockedPrisma.shipment.create).toHaveBeenCalledTimes(1);
     expect(mockedPrisma.shipment.update).toHaveBeenCalledTimes(1);
@@ -199,18 +209,21 @@ describe('ShippingService', () => {
   it('does not repurchase a label when a purchased shipment already exists', async () => {
     mockedPrisma.order.findUnique.mockResolvedValue({
       id: 'ord_1',
-      marketplaceAccount: { kind: 'ebay' },
+      marketplaceAccount: { kind: 'ebay', userId: 'dev-user' },
     } as any);
     mockedPrisma.shipment.findFirst.mockResolvedValue({
       id: 'shipment_existing',
       status: ShipmentStatus.SYNC_QUEUED,
     } as any);
 
-    const result = await service.purchaseLabel({
-      orderId: 'ord_1',
-      providerShipmentId: 'shp_provider_1',
-      rateId: 'rate_1',
-    });
+    const result = await service.purchaseLabel(
+      {
+        orderId: 'ord_1',
+        providerShipmentId: 'shp_provider_1',
+        rateId: 'rate_1',
+      },
+      'dev-user',
+    );
 
     expect(easyPostClient.buyShipment).not.toHaveBeenCalled();
     expect(result).toMatchObject({ id: 'shipment_existing' });
@@ -219,7 +232,7 @@ describe('ShippingService', () => {
   it('marks shipment purchase as unavailable when carrier config is missing', async () => {
     mockedPrisma.order.findUnique.mockResolvedValue({
       id: 'ord_1',
-      marketplaceAccount: { kind: 'ebay' },
+      marketplaceAccount: { kind: 'ebay', userId: 'dev-user' },
     } as any);
     mockedPrisma.shipment.findFirst
       .mockResolvedValueOnce(null)
@@ -246,11 +259,14 @@ describe('ShippingService', () => {
     );
 
     await expect(
-      service.purchaseLabel({
-        orderId: 'ord_1',
-        providerShipmentId: 'shp_provider_1',
-        rateId: 'rate_1',
-      }),
+      service.purchaseLabel(
+        {
+          orderId: 'ord_1',
+          providerShipmentId: 'shp_provider_1',
+          rateId: 'rate_1',
+        },
+        'dev-user',
+      ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     expect(mockedPrisma.shipment.update).toHaveBeenCalledWith(
@@ -268,11 +284,15 @@ describe('ShippingService', () => {
   });
 
   it('returns shipments for an order', async () => {
+    mockedPrisma.order.findUnique.mockResolvedValue({
+      id: 'ord_1',
+      marketplaceAccount: { userId: 'dev-user' },
+    } as any);
     mockedPrisma.shipment.findMany.mockResolvedValue([
       { id: 'shipment_1', orderId: 'ord_1' },
     ] as any);
 
-    const result = await service.getShipmentsForOrder('ord_1');
+    const result = await service.getShipmentsForOrder('ord_1', 'dev-user');
 
     expect(mockedPrisma.shipment.findMany).toHaveBeenCalledWith({
       where: { orderId: 'ord_1' },
@@ -288,13 +308,16 @@ describe('ShippingService', () => {
       status: ShipmentStatus.LABEL_PURCHASED,
       purchasedAt: new Date('2026-03-11T12:00:00.000Z'),
       metadata: null,
+      order: {
+        marketplaceAccount: { userId: 'dev-user' },
+      },
     } as any);
     mockedPrisma.shipment.update.mockResolvedValue({
       id: 'shipment_1',
       status: ShipmentStatus.VOIDED,
     } as any);
 
-    const result = await service.voidLabel('shipment_1');
+    const result = await service.voidLabel('shipment_1', 'dev-user');
 
     expect(easyPostClient.refundShipment).toHaveBeenCalledWith('shp_provider_1');
     expect(result).toMatchObject({ status: ShipmentStatus.VOIDED });

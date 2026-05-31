@@ -81,7 +81,7 @@ describe('InventoryService', () => {
       }),
     );
 
-    const result = (await service.create({ title: 'Vintage Camera' })) as { sku: string; skuManuallySet: boolean };
+    const result = (await service.create({ title: 'Vintage Camera' }, 'dev-user')) as { sku: string; skuManuallySet: boolean };
 
     expect(mockedPrisma.user.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -96,6 +96,7 @@ describe('InventoryService', () => {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValue({
       id: 'item_1',
       sku: 'SKU 123',
+      userId: 'dev-user',
       photos: [],
     });
     mockedPrisma.photo.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -112,7 +113,7 @@ describe('InventoryService', () => {
         { fileName: 'front-view.jpg', contentType: 'image/jpeg', sizeBytes: 1024 },
         { fileName: 'back-view.png', contentType: 'image/png', sizeBytes: 2048 },
       ],
-    })) as { uploads: Array<{ storageKey: string; isPrimary: boolean; uploadStatus: string; sort: number }> };
+    }, 'dev-user')) as { uploads: Array<{ storageKey: string; isPrimary: boolean; uploadStatus: string; sort: number }> };
 
     expect(result.uploads).toHaveLength(2);
     expect(result.uploads[0].storageKey).toContain('inventory/sku-123/item_1/photos/');
@@ -128,6 +129,7 @@ describe('InventoryService', () => {
     mockedPrisma.inventoryItem.findUnique
       .mockResolvedValueOnce({
         id: 'item_1',
+        userId: 'dev-user',
         sku: 'INV-20260311-ABC123',
         skuManuallySet: false,
         title: 'Camera',
@@ -162,6 +164,7 @@ describe('InventoryService', () => {
       .mockResolvedValueOnce({
         id: 'item_1',
         sku: 'CUSTOM-1',
+        userId: 'dev-user',
         skuManuallySet: true,
         title: 'Camera',
         description: null,
@@ -193,7 +196,7 @@ describe('InventoryService', () => {
       upc: '012345678905',
       scanCode: ' scan-99 ',
       inventoryStatus: 'IN_STOCK',
-    })) as { sku: string; bin: { code: string } | null; scanCode: string | null };
+    }, 'dev-user')) as { sku: string; bin: { code: string } | null; scanCode: string | null };
 
     expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -218,7 +221,7 @@ describe('InventoryService', () => {
       listingReadiness: 'READY_FOR_AI',
       saleStatus: 'AVAILABLE',
       sort: 'sku-asc',
-    });
+    }, 'dev-user');
 
     expect(mockedPrisma.inventoryItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -266,6 +269,7 @@ describe('InventoryService', () => {
       .mockResolvedValueOnce({
         id: 'item_1',
         sku: 'SKU 123',
+        userId: 'dev-user',
         skuManuallySet: false,
         title: 'Camera',
         description: null,
@@ -309,7 +313,7 @@ describe('InventoryService', () => {
       });
     mockedPrisma.inventoryItem.update.mockResolvedValue({});
 
-    const result = (await service.deletePhoto('item_1', 'photo_1')) as {
+    const result = (await service.deletePhoto('item_1', 'photo_1', 'dev-user')) as {
       primaryPhoto: { id: string };
       photos: Array<{ id: string }>;
     };
