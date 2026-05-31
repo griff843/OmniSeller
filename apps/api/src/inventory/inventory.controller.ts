@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { USER_ID_HEADER } from '../common/user-context';
 import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { CreatePhotoUploadRequestDto } from './dto/create-photo-upload-request.dto';
@@ -12,36 +13,37 @@ export class InventoryController {
   constructor(private readonly svc: InventoryService) {}
 
   @Get('bins')
-  listBins(): Promise<unknown> {
-    return this.svc.listBins();
+  listBins(@Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.listBins(userId);
   }
 
   @Get()
-  list(@Query() query: ListInventoryQueryDto): Promise<unknown> {
-    return this.svc.list(query);
+  list(@Query() query: ListInventoryQueryDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.list(query, userId);
   }
 
   @Post()
-  create(@Body() body: CreateInventoryItemDto): Promise<unknown> {
-    return this.svc.create(body);
+  create(@Body() body: CreateInventoryItemDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.create(body, userId);
   }
 
   @Get(':id')
-  get(@Param('id') id: string): Promise<unknown> {
-    return this.svc.get(id);
+  get(@Param('id') id: string, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.get(id, userId);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateInventoryItemDto): Promise<unknown> {
-    return this.svc.update(id, body);
+  update(@Param('id') id: string, @Body() body: UpdateInventoryItemDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.update(id, body, userId);
   }
 
   @Post(':id/photos/upload-request')
   createPhotoUploadRequests(
     @Param('id') id: string,
     @Body() dto: CreatePhotoUploadRequestDto,
+    @Headers(USER_ID_HEADER) userId?: string,
   ): Promise<unknown> {
-    return this.svc.createPhotoUploadRequests(id, dto);
+    return this.svc.createPhotoUploadRequests(id, dto, userId);
   }
 
   @Post(':id/photos/:photoId/complete')
@@ -49,22 +51,23 @@ export class InventoryController {
     @Param('id') id: string,
     @Param('photoId') photoId: string,
     @Body() dto: CompletePhotoUploadDto & { url: string },
+    @Headers(USER_ID_HEADER) userId?: string,
   ): Promise<unknown> {
-    return this.svc.completePhotoUpload(id, photoId, dto);
+    return this.svc.completePhotoUpload(id, photoId, dto, userId);
   }
 
   @Post(':id/photos/reorder')
-  reorderPhotos(@Param('id') id: string, @Body() dto: ReorderPhotosDto): Promise<unknown> {
-    return this.svc.reorderPhotos(id, dto);
+  reorderPhotos(@Param('id') id: string, @Body() dto: ReorderPhotosDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.reorderPhotos(id, dto, userId);
   }
 
   @Post(':id/photos/:photoId/primary')
-  setPrimaryPhoto(@Param('id') id: string, @Param('photoId') photoId: string): Promise<unknown> {
-    return this.svc.setPrimaryPhoto(id, photoId);
+  setPrimaryPhoto(@Param('id') id: string, @Param('photoId') photoId: string, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.setPrimaryPhoto(id, photoId, userId);
   }
 
   @Delete(':id/photos/:photoId')
-  deletePhoto(@Param('id') id: string, @Param('photoId') photoId: string): Promise<unknown> {
-    return this.svc.deletePhoto(id, photoId);
+  deletePhoto(@Param('id') id: string, @Param('photoId') photoId: string, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.deletePhoto(id, photoId, userId);
   }
 }

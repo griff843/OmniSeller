@@ -1,3 +1,5 @@
+import { requireUser } from './requireUser';
+
 export const API_BASE_URL = process.env.OMNISELLER_API_BASE_URL ?? 'http://localhost:3001';
 
 export class ApiRequestError extends Error {
@@ -12,11 +14,13 @@ export class ApiRequestError extends Error {
 }
 
 export async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const user = await requireUser();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
+      'x-omniseller-user-id': user.id,
       ...(init?.headers ?? {}),
     },
   });
@@ -43,10 +47,12 @@ export async function proxyApi(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  const user = await requireUser();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      'x-omniseller-user-id': user.id,
       ...(init?.headers ?? {}),
     },
   });

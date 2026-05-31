@@ -22,8 +22,7 @@ import { InventoryScannerService } from './inventory-scanner.service';
 import { PhotoProcessingService } from './photo-processing.service';
 import { PhotoStoragePathService } from './photo-storage-path.service';
 import { getPublishStateMessage, isPublishInFlight } from '../listings/publish-state';
-
-const DEV_USER_ID = 'dev-user';
+import { DEV_USER_ID, ownsRecord, resolveUserId } from '../common/user-context';
 
 @Injectable()
 export class InventoryService {
@@ -34,12 +33,13 @@ export class InventoryService {
     private readonly inventoryScannerService: InventoryScannerService,
   ) {}
 
-  async list(query: ListInventoryQueryDto = {}): Promise<unknown> {
+  async list(query: ListInventoryQueryDto = {}, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const normalizedQuery = query.q?.trim();
     const normalizedBinCode = query.binCode ? normalizeSku(query.binCode) : undefined;
 
     const where: any = {
-      userId: DEV_USER_ID,
+      userId: ownerId,
     };
 
     if (normalizedQuery) {
@@ -81,10 +81,11 @@ export class InventoryService {
     };
   }
 
-  async listBins(): Promise<unknown> {
+  async listBins(userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const bins = await prisma.bin.findMany({
       where: {
-        userId: DEV_USER_ID,
+        userId: ownerId,
         isActive: true,
       },
       orderBy: [{ area: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
@@ -111,8 +112,9 @@ export class InventoryService {
     }));
   }
 
-  async create(data: CreateInventoryItemDto): Promise<unknown> {
-    await this.ensureDevUser();
+  async create(data: CreateInventoryItemDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    await this.ensureUser(ownerId);
 
     const id = randomUUID();
     const createdAt = new Date();
@@ -123,12 +125,12 @@ export class InventoryService {
       throw new BadRequestException('SKU must be at least 4 characters after normalization');
     }
 
-    const bin = data.binCode ? await this.findOrCreateBin(data.binCode) : null;
+    const bin = data.binCode ? await this.findOrCreateBin(data.binCode, ownerId) : null;
 
     const item = await prisma.inventoryItem.create({
       data: {
         id,
-        userId: DEV_USER_ID,
+        userId: ownerId,
         sku,
         skuManuallySet: Boolean(manualSku),
         title: data.title?.trim() || null,
@@ -142,26 +144,28 @@ export class InventoryService {
     return this.serializeInventoryItem(item);
   }
 
-  async get(id: string): Promise<unknown> {
+  async get(id: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const item: any = await prisma.inventoryItem.findUnique({
       where: { id },
       include: this.inventoryInclude(),
     } as any);
 
-    if (!item) {
+    if (!item || !ownsRecord(item.userId, ownerId)) {
       throw new NotFoundException(`Inventory item ${id} not found`);
     }
 
     return this.serializeInventoryItem(item);
   }
 
-  async update(id: string, dto: UpdateInventoryItemDto): Promise<unknown> {
+  async update(id: string, dto: UpdateInventoryItemDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const existing: any = await prisma.inventoryItem.findUnique({
       where: { id },
       include: this.inventoryInclude(),
     } as any);
 
-    if (!existing) {
+    if (!existing || !ownsRecord(existing.userId, ownerId)) {
       throw new NotFoundException(`Inventory item ${id} not found`);
     }
 
@@ -175,7 +179,7 @@ export class InventoryService {
       ? existing.bin
       : dto.binCode === null || dto.binCode.trim().length === 0
         ? null
-        : await this.findOrCreateBin(dto.binCode);
+        : await this.findOrCreateBin(dto.binCode, ownerId);
 
     const normalizedScanCode = dto.scanCode !== undefined && dto.scanCode !== null
       ? this.inventoryScannerService.normalizeScanCode(dto.scanCode)
@@ -201,10 +205,11 @@ export class InventoryService {
     } as any);
 
     await this.syncWorkflowState(id);
-    return this.get(id);
+    return this.get(id, ownerId);
   }
 
-  async createPhotoUploadRequests(inventoryItemId: string, dto: CreatePhotoUploadRequestDto): Promise<unknown> {
+  async createPhotoUploadRequests(inventoryItemId: string, dto: CreatePhotoUploadRequestDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const item: any = await prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
       include: {
@@ -215,7 +220,7 @@ export class InventoryService {
       },
     } as any);
 
-    if (!item) {
+    if (!item || !ownsRecord(item.userId, ownerId)) {
       throw new NotFoundException(`Inventory item ${inventoryItemId} not found`);
     }
 
@@ -260,8 +265,9 @@ export class InventoryService {
     };
   }
 
-  async completePhotoUpload(inventoryItemId: string, photoId: string, dto: CompletePhotoUploadDto & { url: string }): Promise<unknown> {
-    const photo = await this.requirePhoto(inventoryItemId, photoId);
+  async completePhotoUpload(inventoryItemId: string, photoId: string, dto: CompletePhotoUploadDto & { url: string }, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const photo = await this.requirePhoto(inventoryItemId, photoId, ownerId);
 
     await prisma.photo.update({
       where: { id: photo.id },
@@ -276,11 +282,12 @@ export class InventoryService {
     } as any);
 
     await this.syncWorkflowState(inventoryItemId);
-    return this.get(inventoryItemId);
+    return this.get(inventoryItemId, ownerId);
   }
 
-  async setPrimaryPhoto(inventoryItemId: string, photoId: string): Promise<unknown> {
-    await this.requirePhoto(inventoryItemId, photoId);
+  async setPrimaryPhoto(inventoryItemId: string, photoId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    await this.requirePhoto(inventoryItemId, photoId, ownerId);
 
     await prisma.$transaction([
       prisma.photo.updateMany({
@@ -297,10 +304,12 @@ export class InventoryService {
       }),
     ]);
 
-    return this.get(inventoryItemId);
+    return this.get(inventoryItemId, ownerId);
   }
 
-  async reorderPhotos(inventoryItemId: string, dto: ReorderPhotosDto): Promise<unknown> {
+  async reorderPhotos(inventoryItemId: string, dto: ReorderPhotosDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    await this.requireInventoryItem(inventoryItemId, ownerId);
     const activePhotos = await prisma.photo.findMany({
       where: {
         inventoryItemId,
@@ -335,11 +344,12 @@ export class InventoryService {
       ),
     );
 
-    return this.get(inventoryItemId);
+    return this.get(inventoryItemId, ownerId);
   }
 
-  async deletePhoto(inventoryItemId: string, photoId: string): Promise<unknown> {
-    const photo = await this.requirePhoto(inventoryItemId, photoId);
+  async deletePhoto(inventoryItemId: string, photoId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const photo = await this.requirePhoto(inventoryItemId, photoId, ownerId);
 
     await prisma.photo.update({
       where: { id: photo.id },
@@ -369,7 +379,7 @@ export class InventoryService {
     }
 
     await this.syncWorkflowState(inventoryItemId);
-    return this.get(inventoryItemId);
+    return this.get(inventoryItemId, ownerId);
   }
 
   private inventoryInclude(): any {
@@ -405,12 +415,27 @@ export class InventoryService {
     }
   }
 
-  private async requirePhoto(inventoryItemId: string, photoId: string) {
+  private async requireInventoryItem(inventoryItemId: string, userId: string) {
+    const item: any = await prisma.inventoryItem.findUnique({
+      where: { id: inventoryItemId },
+    } as any);
+
+    if (!item || !ownsRecord(item.userId, userId)) {
+      throw new NotFoundException(`Inventory item ${inventoryItemId} not found`);
+    }
+
+    return item;
+  }
+
+  private async requirePhoto(inventoryItemId: string, photoId: string, userId: string) {
     const photo = await prisma.photo.findFirst({
       where: {
         id: photoId,
         inventoryItemId,
         deletedAt: null,
+        item: {
+          userId,
+        },
       },
     } as any);
 
@@ -421,8 +446,8 @@ export class InventoryService {
     return photo;
   }
 
-  private async findOrCreateBin(input: string) {
-    await this.ensureDevUser();
+  private async findOrCreateBin(input: string, userId: string) {
+    await this.ensureUser(userId);
 
     const code = normalizeSku(input);
 
@@ -432,7 +457,7 @@ export class InventoryService {
 
     const existing = await prisma.bin.findFirst({
       where: {
-        userId: DEV_USER_ID,
+        userId,
         code,
       },
     } as any);
@@ -443,20 +468,20 @@ export class InventoryService {
 
     return prisma.bin.create({
       data: {
-        userId: DEV_USER_ID,
+        userId,
         code,
         label: code,
       },
     } as any);
   }
 
-  private async ensureDevUser() {
+  private async ensureUser(userId = DEV_USER_ID) {
     await prisma.user.upsert({
-      where: { id: DEV_USER_ID },
+      where: { id: userId },
       update: {},
       create: {
-        id: DEV_USER_ID,
-        email: 'dev-user@local.omniseller',
+        id: userId,
+        email: userId === DEV_USER_ID ? 'dev-user@local.omniseller' : null,
         name: 'Local Dev User',
       },
     } as any);

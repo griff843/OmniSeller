@@ -2,13 +2,20 @@ import { Injectable } from '@nestjs/common';
 import { prisma } from '@omniseller/db';
 import { ShippingService } from '../shipping/shipping.service';
 import { deriveShipmentExecutionState } from '../shipping/shipping-workflow-state';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 
 @Injectable()
 export class OrdersService {
   constructor(private readonly shippingService: ShippingService) {}
 
-  async list(): Promise<unknown> {
+  async list(userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const orders = await prisma.order.findMany({
+      where: {
+        marketplaceAccount: {
+          userId: ownerId,
+        },
+      },
       orderBy: { createdAt: 'desc' },
       include: this.orderInclude(),
     } as any);
@@ -16,13 +23,14 @@ export class OrdersService {
     return orders.map((order: any) => this.serializeOrder(order));
   }
 
-  async get(id: string): Promise<unknown> {
-    const order = await prisma.order.findUnique({
+  async get(id: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const order: any = await prisma.order.findUnique({
       where: { id },
       include: this.orderInclude(),
     } as any);
 
-    if (!order) {
+    if (!order || !ownsRecord(order.marketplaceAccount?.userId, ownerId)) {
       return null;
     }
 
@@ -34,6 +42,7 @@ export class OrdersService {
       marketplaceAccount: {
         select: {
           id: true,
+          userId: true,
           kind: true,
           nickname: true,
         },

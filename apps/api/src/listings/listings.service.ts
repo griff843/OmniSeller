@@ -12,6 +12,7 @@ import { Queue } from 'bullmq';
 import { buildReadinessBlockers, isPublishReady } from '../inventory/inventory-workflow-state';
 import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 import { MARKETPLACE_PUBLISH_PROVIDER, MarketplacePublishProvider } from './publishing/marketplace-publish.contract';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 
 const PUBLISH_QUEUE = 'publishListing';
 
@@ -23,7 +24,8 @@ export class ListingsService {
     private readonly publishProvider: MarketplacePublishProvider,
   ) {}
 
-  async enqueuePublish(inventoryItemId: string, marketplace: string) {
+  async enqueuePublish(inventoryItemId: string, marketplace: string, userId?: string) {
+    const ownerId = resolveUserId(userId);
     const item: any = await prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
       include: {
@@ -37,7 +39,7 @@ export class ListingsService {
       },
     });
 
-    if (!item) {
+    if (!item || !ownsRecord(item.userId, ownerId)) {
       throw new NotFoundException('Item not found');
     }
 
