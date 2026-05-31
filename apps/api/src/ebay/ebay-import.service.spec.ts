@@ -6,6 +6,7 @@ jest.mock('@omniseller/db', () => ({
   prisma: {
     marketplaceAccount: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     marketplaceSyncState: {
       findMany: jest.fn(),
@@ -58,6 +59,7 @@ describe('EbayImportService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.marketplaceAccount.findFirst.mockResolvedValue(account);
+    prisma.marketplaceAccount.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.upsert.mockResolvedValue({});
   });
@@ -316,5 +318,53 @@ describe('EbayImportService', () => {
       }),
     );
     expect(result.resources).toHaveLength(2);
+  });
+
+  it('syncs a specific marketplace account for queued jobs', async () => {
+    provider.fetchSnapshot.mockResolvedValue({
+      listings: [],
+      cursors: { LISTINGS: null },
+    });
+
+    const result = await service.syncAccount('acct_1', 'LISTINGS');
+
+    expect(prisma.marketplaceAccount.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'acct_1',
+        kind: 'ebay',
+      },
+    });
+    expect(provider.fetchSnapshot).toHaveBeenCalledWith(account, {
+      resources: ['LISTINGS'],
+      cursors: {},
+    });
+    expect(result.resources).toHaveLength(1);
+  });
+
+  it('syncs all connected eBay accounts for scheduled jobs and records per-account failures', async () => {
+    prisma.marketplaceAccount.findMany.mockResolvedValue([
+      account,
+      { ...account, id: 'acct_2' },
+    ]);
+    provider.fetchSnapshot
+      .mockResolvedValueOnce({ listings: [], orders: [], cursors: {} })
+      .mockRejectedValueOnce(new Error('eBay unavailable'));
+
+    const result = await service.syncAllConnectedAccounts();
+
+    expect(prisma.marketplaceAccount.findMany).toHaveBeenCalledWith({
+      where: {
+        kind: 'ebay',
+        refreshToken: {
+          not: null,
+        },
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+    expect(result.accountCount).toBe(2);
+    expect(result.results[1]).toEqual({
+      accountId: 'acct_2',
+      error: 'eBay unavailable',
+    });
   });
 });

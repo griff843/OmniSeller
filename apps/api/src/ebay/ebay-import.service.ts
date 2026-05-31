@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MarketplaceAccount, prisma } from '@omniseller/db';
 import { resolveUserId } from '../common/user-context';
 import { EbayImportProvider } from './ebay-import.provider';
@@ -16,7 +17,10 @@ const TERMINAL_SALE_STATES = new Set(['RESERVED', 'SOLD', 'SHIPPED']);
 
 @Injectable()
 export class EbayImportService {
-  constructor(private readonly importProvider: EbayImportProvider) {}
+  constructor(
+    private readonly importProvider: EbayImportProvider,
+    private readonly configService?: ConfigService,
+  ) {}
 
   async sync(resource: EbayImportResource | 'ALL' = 'ALL', userId?: string) {
     const ownerId = resolveUserId(userId);
@@ -26,6 +30,54 @@ export class EbayImportService {
       throw new NotFoundException('Connect an eBay account before importing marketplace activity.');
     }
 
+    return this.performSync(account, resource);
+  }
+
+  async syncAccount(marketplaceAccountId: string, resource: EbayImportResource | 'ALL' = 'ALL') {
+    const account = await prisma.marketplaceAccount.findFirst({
+      where: {
+        id: marketplaceAccountId,
+        kind: 'ebay',
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException(`eBay marketplace account ${marketplaceAccountId} was not found.`);
+    }
+
+    return this.performSync(account, resource);
+  }
+
+  async syncAllConnectedAccounts() {
+    const accounts = await prisma.marketplaceAccount.findMany({
+      where: {
+        kind: 'ebay',
+        refreshToken: {
+          not: null,
+        },
+      },
+      orderBy: { updatedAt: 'asc' },
+    } as any);
+    const results = [];
+
+    for (const account of accounts) {
+      try {
+        results.push(await this.performSync(account, 'ALL'));
+      } catch (error) {
+        results.push({
+          accountId: account.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      accountCount: accounts.length,
+      results,
+    };
+  }
+
+  private async performSync(account: MarketplaceAccount, resource: EbayImportResource | 'ALL') {
     if (resource !== 'ALL' && !RESOURCE_LIST.includes(resource)) {
       throw new BadRequestException('Sync resource must be LISTINGS, ORDERS, or ALL.');
     }
@@ -79,6 +131,7 @@ export class EbayImportService {
     return {
       connected: true,
       accountId: account.id,
+      schedule: this.getScheduleStatus(),
       states: states.map((state: any) => ({
         resource: state.resource,
         status: state.status,
@@ -88,6 +141,16 @@ export class EbayImportService {
         lastSyncedAt: state.lastSyncedAt ?? null,
         lastError: state.lastError ?? null,
       })),
+    };
+  }
+
+  getScheduleStatus() {
+    const enabled = this.configService?.get<string>('EBAY_SYNC_SCHEDULE_ENABLED') !== 'false';
+    const configuredInterval = Number(this.configService?.get<string>('EBAY_SYNC_INTERVAL_MINUTES'));
+
+    return {
+      enabled,
+      intervalMinutes: Number.isFinite(configuredInterval) && configuredInterval > 0 ? configuredInterval : 30,
     };
   }
 

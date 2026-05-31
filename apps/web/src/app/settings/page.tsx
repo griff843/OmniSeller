@@ -25,6 +25,10 @@ type SettingsStatus = {
     lastSyncedAt: Date | null;
     lastError: string | null;
   }>;
+  syncSchedule: {
+    enabled: boolean;
+    intervalMinutes: number;
+  };
 };
 
 type StatusCard = {
@@ -141,6 +145,7 @@ async function loadSettingsStatus(): Promise<SettingsStatus> {
         orderBy: { resource: 'asc' },
       })
     : [];
+  const configuredSyncInterval = Number(process.env.EBAY_SYNC_INTERVAL_MINUTES);
 
   return {
     authStatus: 'authenticated',
@@ -157,6 +162,10 @@ async function loadSettingsStatus(): Promise<SettingsStatus> {
       lastSyncedAt: state.lastSyncedAt ? new Date(state.lastSyncedAt) : null,
       lastError: state.lastError ?? null,
     })),
+    syncSchedule: {
+      enabled: process.env.EBAY_SYNC_SCHEDULE_ENABLED !== 'false',
+      intervalMinutes: Number.isFinite(configuredSyncInterval) && configuredSyncInterval > 0 ? configuredSyncInterval : 30,
+    },
   };
 }
 
@@ -249,6 +258,10 @@ export default async function SettingsPage() {
                 <h2 className="text-lg font-semibold text-slate-950">Marketplace import</h2>
                 <p className="mt-1 text-sm text-slate-600">
                   Pull connected eBay listings and orders into local inventory, listings, and order workflows.
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Scheduled sync is {settingsStatus.syncSchedule.enabled ? 'enabled' : 'disabled'}
+                  {settingsStatus.syncSchedule.enabled ? ` every ${settingsStatus.syncSchedule.intervalMinutes} minutes.` : '.'}
                 </p>
               </div>
               <form action={syncEbay}>
