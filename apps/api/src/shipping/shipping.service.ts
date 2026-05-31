@@ -15,6 +15,7 @@ import { PurchaseLabelDto } from './dto/purchase-label.dto';
 import { EasyPostClient } from './providers/easypost.client';
 import { SHIPPING_PROVIDER, SHIPPING_SYNC_JOB, SHIPPING_SYNC_QUEUE } from './shipping.constants';
 import { isShippingConfigurationError } from './shipping-workflow-state';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 
 @Injectable()
 export class ShippingService {
@@ -65,27 +66,25 @@ export class ShippingService {
     };
   }
 
-  async getShipmentsForOrder(orderId: string): Promise<unknown> {
+  async getShipmentsForOrder(orderId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    await this.requireOrderForUser(orderId, ownerId);
+
     return prisma.shipment.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async previewRates(dto: CreateShippingRatesDto) {
+  async previewRates(dto: CreateShippingRatesDto, userId?: string) {
+    const ownerId = resolveUserId(userId);
     const availability = this.getAvailabilitySummary();
 
     if (!availability.canRequestRates) {
       throw new ServiceUnavailableException(availability.blockedReason);
     }
 
-    const order = await prisma.order.findUnique({
-      where: { id: dto.orderId },
-    });
-
-    if (!order) {
-      throw new BadRequestException(`Order ${dto.orderId} not found`);
-    }
+    const order = await this.requireOrderForUser(dto.orderId, ownerId);
 
     if (!Array.isArray(dto.parcels) || dto.parcels.length === 0) {
       throw new BadRequestException('At least one parcel is required');
@@ -121,17 +120,9 @@ export class ShippingService {
     };
   }
 
-  async purchaseLabel(dto: PurchaseLabelDto): Promise<unknown> {
-    const order = await prisma.order.findUnique({
-      where: { id: dto.orderId },
-      include: {
-        marketplaceAccount: true,
-      },
-    });
-
-    if (!order) {
-      throw new BadRequestException(`Order ${dto.orderId} not found`);
-    }
+  async purchaseLabel(dto: PurchaseLabelDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const order = await this.requireOrderForUser(dto.orderId, ownerId);
 
     const existing = await prisma.shipment.findFirst({
       where: {
@@ -303,12 +294,20 @@ export class ShippingService {
     return shipment;
   }
 
-  async voidLabel(shipmentId: string): Promise<unknown> {
+  async voidLabel(shipmentId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const shipment = await prisma.shipment.findUnique({
       where: { id: shipmentId },
+      include: {
+        order: {
+          include: {
+            marketplaceAccount: true,
+          },
+        },
+      },
     });
 
-    if (!shipment) {
+    if (!shipment || (shipment.order && !ownsRecord(shipment.order.marketplaceAccount?.userId, ownerId))) {
       throw new BadRequestException(`Shipment ${shipmentId} not found`);
     }
 
@@ -409,6 +408,21 @@ export class ShippingService {
         },
       },
     });
+  }
+
+  private async requireOrderForUser(orderId: string, userId: string) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        marketplaceAccount: true,
+      },
+    });
+
+    if (!order || !ownsRecord(order.marketplaceAccount?.userId, userId)) {
+      throw new BadRequestException(`Order ${orderId} not found`);
+    }
+
+    return order;
   }
 
   private resolveDefaultShipFrom(): AddressDto {

@@ -1,6 +1,7 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Controller, Get, Headers, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { EbayService } from './ebay.service';
+import { USER_ID_HEADER } from '../common/user-context';
 
 @Controller('ebay')
 export class EbayController {
@@ -13,9 +14,13 @@ export class EbayController {
   }
 
   @Get('callback')
-  async callback(@Query('code') code: string) {
+  async callback(@Query('code') code: string, @Headers(USER_ID_HEADER) userId?: string) {
     if (!code) return 'Missing code';
-    await this.svc.exchangeCode(code);
-    return 'eBay connected ✔';
+    return this.svc.exchangeCode(code, userId);
+  }
+
+  @Get('status')
+  getStatus(@Headers(USER_ID_HEADER) userId?: string) {
+    return this.svc.getConnectionHealth(userId);
   }
 }

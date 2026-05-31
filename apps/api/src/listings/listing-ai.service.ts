@@ -22,6 +22,7 @@ import {
   isPublishReady,
 } from '../inventory/inventory-workflow-state';
 import { getPublishStateMessage, isPublishInFlight } from './publish-state';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 
 @Injectable()
 export class ListingAiService {
@@ -30,8 +31,8 @@ export class ListingAiService {
     private readonly provider: ListingAiProvider,
   ) {}
 
-  async getWorkspace(inventoryItemId: string): Promise<unknown> {
-    const item = await this.requireInventoryItem(inventoryItemId);
+  async getWorkspace(inventoryItemId: string, userId?: string): Promise<unknown> {
+    const item = await this.requireInventoryItem(inventoryItemId, userId);
 
     return {
       inventoryItemId: item.id,
@@ -54,8 +55,8 @@ export class ListingAiService {
     };
   }
 
-  async generateSuggestion(inventoryItemId: string): Promise<unknown> {
-    const item = await this.requireInventoryItem(inventoryItemId);
+  async generateSuggestion(inventoryItemId: string, userId?: string): Promise<unknown> {
+    const item = await this.requireInventoryItem(inventoryItemId, userId);
     const readyPhotoCount = (item.photos ?? []).filter((photo: any) => Boolean(photo.url)).length;
 
     if (!this.provider.isConfigured()) {
@@ -113,7 +114,8 @@ export class ListingAiService {
     }
   }
 
-  async applySuggestion(inventoryItemId: string, dto: ApplyAiSuggestionDto): Promise<unknown> {
+  async applySuggestion(inventoryItemId: string, dto: ApplyAiSuggestionDto, userId?: string): Promise<unknown> {
+    await this.requireInventoryItem(inventoryItemId, userId);
     const suggestion = await prisma.aiListingSuggestion.findFirst({
       where: {
         id: dto.suggestionId,
@@ -176,7 +178,8 @@ export class ListingAiService {
     return this.serializeDraft(draft);
   }
 
-  async updateDraft(inventoryItemId: string, dto: UpdateListingDraftDto): Promise<unknown> {
+  async updateDraft(inventoryItemId: string, dto: UpdateListingDraftDto, userId?: string): Promise<unknown> {
+    await this.requireInventoryItem(inventoryItemId, userId);
     const normalizedSpecifics = dto.itemSpecifics
       ? Object.fromEntries(
           Object.entries(dto.itemSpecifics)
@@ -209,7 +212,8 @@ export class ListingAiService {
     return this.serializeDraft(draft);
   }
 
-  private async requireInventoryItem(inventoryItemId: string): Promise<any> {
+  private async requireInventoryItem(inventoryItemId: string, userId?: string): Promise<any> {
+    const ownerId = resolveUserId(userId);
     const item: any = await prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
       include: {
@@ -232,7 +236,7 @@ export class ListingAiService {
       },
     } as any);
 
-    if (!item) {
+    if (!item || !ownsRecord(item.userId, ownerId)) {
       throw new NotFoundException(`Inventory item ${inventoryItemId} not found`);
     }
 
