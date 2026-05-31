@@ -4,12 +4,18 @@ jest.mock('@omniseller/db', () => ({
   prisma: {
     inventoryItem: {
       findMany: jest.fn(),
+      count: jest.fn(),
+      aggregate: jest.fn(),
+      groupBy: jest.fn(),
     },
     listing: {
       findMany: jest.fn(),
+      count: jest.fn(),
+      aggregate: jest.fn(),
     },
     order: {
       findMany: jest.fn(),
+      count: jest.fn(),
     },
   },
 }));
@@ -22,12 +28,13 @@ describe('DashboardService', () => {
     jest.clearAllMocks();
   });
 
-  it('calculates revenue, cost basis, gross profit, and ROI from order items', () => {
+  it('calculates full-settlement revenue and actual label costs', () => {
     const summary = calculateProfitSummary([
       {
-        totalCents: 5000,
+        totalCents: 6000,
         feeCents: 600,
-        shippingCents: 800,
+        shippingCents: 1000,
+        taxCents: 0,
         items: [
           {
             quantity: 2,
@@ -35,17 +42,35 @@ describe('DashboardService', () => {
             inventoryItem: { costBasisCents: 1000 },
           },
         ],
+        shipments: [{ status: 'LABEL_PURCHASED', rateAmount: '4.00' }],
       },
     ]);
 
     expect(summary).toEqual({
-      revenueCents: 5000,
+      revenueCents: 6000,
       feeCents: 600,
-      shippingCostCents: 800,
+      shippingCostCents: 400,
       costBasisCents: 2000,
-      grossProfitCents: 1600,
-      roiPercent: 80,
+      grossProfitCents: 3000,
+      roiPercent: 150,
     });
+  });
+
+  it('uses item-only revenue fallback that excludes buyer shipping and tax before adding shipping revenue', () => {
+    const summary = calculateProfitSummary([
+      {
+        totalCents: 6700,
+        feeCents: 700,
+        shippingCents: 1000,
+        taxCents: 700,
+        items: [],
+        shipments: [{ status: 'LABEL_PURCHASED', rateAmount: '4.00' }],
+      },
+    ]);
+
+    expect(summary.revenueCents).toBe(6000);
+    expect(summary.shippingCostCents).toBe(400);
+    expect(summary.grossProfitCents).toBe(4900);
   });
 
   it('returns user-scoped operating counts and queues', async () => {
@@ -75,10 +100,27 @@ describe('DashboardService', () => {
         updatedAt: new Date('2026-03-12T11:00:00.000Z'),
       },
     ]);
+    prisma.inventoryItem.count.mockResolvedValue(2);
+    prisma.inventoryItem.aggregate.mockResolvedValue({ _sum: { costBasisCents: 4200 } });
+    prisma.inventoryItem.groupBy
+      .mockResolvedValueOnce([
+        { listingReadiness: 'NEEDS_PHOTOS', _count: { _all: 1 } },
+        { listingReadiness: 'READY_TO_PUBLISH', _count: { _all: 1 } },
+      ])
+      .mockResolvedValueOnce([
+        { saleStatus: 'AVAILABLE', _count: { _all: 1 } },
+        { saleStatus: 'LISTED', _count: { _all: 1 } },
+      ])
+      .mockResolvedValueOnce([
+        { publishStatus: 'NOT_REQUESTED', _count: { _all: 1 } },
+        { publishStatus: 'FAILED', _count: { _all: 1 } },
+      ]);
     prisma.listing.findMany.mockResolvedValue([
       { id: 'listing_1', status: 'active', priceCents: 7500 },
       { id: 'listing_2', status: 'ended', priceCents: 5000 },
     ]);
+    prisma.listing.count.mockResolvedValueOnce(2).mockResolvedValueOnce(1);
+    prisma.listing.aggregate.mockResolvedValue({ _sum: { priceCents: 7500 } });
     prisma.order.findMany.mockResolvedValue([
       {
         id: 'order_1',
@@ -89,6 +131,7 @@ describe('DashboardService', () => {
         totalCents: 7500,
         feeCents: 900,
         shippingCents: 500,
+        taxCents: 0,
         createdAt: new Date('2026-03-12T12:00:00.000Z'),
         marketplaceAccount: { id: 'acct_1', kind: 'ebay', nickname: 'Store' },
         items: [
@@ -103,20 +146,28 @@ describe('DashboardService', () => {
             },
           },
         ],
-        shipments: [{ status: 'ERROR' }],
+        shipments: [{ status: 'ERROR', rateAmount: '3.00' }],
       },
     ]);
+    prisma.order.count.mockResolvedValue(1);
 
     const summary = (await service.getSummary('user_1')) as any;
 
     expect(prisma.inventoryItem.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: 'user_1' } }),
+      expect.objectContaining({ where: { userId: 'user_1' }, take: 200 }),
     );
     expect(summary.inventory.total).toBe(2);
     expect(summary.inventory.workflow.blocked).toBe(1);
     expect(summary.listings.active).toBe(1);
     expect(summary.orders.requiringShipping).toBe(1);
-    expect(summary.profit.grossProfitCents).toBe(3100);
+    expect(summary.profit).toEqual(
+      expect.objectContaining({
+        revenueCents: 8000,
+        shippingCostCents: 300,
+        grossProfitCents: 3800,
+      }),
+    );
+    expect(summary.period.orderWindowDays).toBe(30);
     expect(summary.workQueues.needsPhotos).toHaveLength(1);
     expect(summary.workQueues.publishBlocked[0].publishError).toContain('category');
     expect(summary.workQueues.shippingError).toHaveLength(1);

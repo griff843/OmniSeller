@@ -30,7 +30,8 @@ export class EbayImportService {
     }
 
     const resources = resource === 'ALL' ? RESOURCE_LIST : [resource];
-    const snapshot = await this.importProvider.fetchSnapshot(account);
+    const cursors = await this.getExistingCursors(account.id, resources);
+    const snapshot = await this.importProvider.fetchSnapshot(account, { resources, cursors });
     const results: EbayImportResult[] = [];
 
     for (const syncResource of resources) {
@@ -387,6 +388,25 @@ export class EbayImportService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  private async getExistingCursors(accountId: string, resources: EbayImportResource[]) {
+    const states = await prisma.marketplaceSyncState.findMany({
+      where: {
+        marketplaceAccountId: accountId,
+        resource: {
+          in: resources,
+        },
+      },
+    } as any);
+
+    return states.reduce(
+      (cursors: Partial<Record<EbayImportResource, string | null>>, state: any) => ({
+        ...cursors,
+        [state.resource]: state.cursor ?? null,
+      }),
+      {},
+    );
   }
 
   private buildImportedSku(accountId: string, marketplaceItemId: string) {

@@ -55,6 +55,7 @@ describe('EbayImportService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.marketplaceAccount.findFirst.mockResolvedValue(account);
+    prisma.marketplaceSyncState.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.upsert.mockResolvedValue({});
   });
 
@@ -197,7 +198,10 @@ describe('EbayImportService', () => {
 
     const result = await service.sync('ALL', 'user_1');
 
-    expect(provider.fetchSnapshot).toHaveBeenCalledWith(account);
+    expect(provider.fetchSnapshot).toHaveBeenCalledWith(account, {
+      resources: ['LISTINGS', 'ORDERS'],
+      cursors: {},
+    });
     expect(prisma.marketplaceSyncState.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({

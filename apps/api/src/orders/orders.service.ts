@@ -156,26 +156,41 @@ export class OrdersService {
 
   private calculateFinancials(order: any, items: any[]) {
     const itemFinancials = items.map((item) => {
-      const revenueCents = item.salePriceCents * item.quantity;
+      const itemRevenueCents = item.salePriceCents * item.quantity;
       const costBasisCents = (item.inventoryItem?.costBasisCents ?? 0) * item.quantity;
 
       return {
-        revenueCents,
+        revenueCents: itemRevenueCents,
         costBasisCents,
       };
     });
-    const revenueCents = itemFinancials.reduce((sum, item) => sum + item.revenueCents, 0);
-    const feeAllocations = this.allocateByRevenue(itemFinancials, order.feeCents ?? 0, revenueCents);
-    const shippingAllocations = this.allocateByRevenue(itemFinancials, order.shippingCents ?? 0, revenueCents);
+    const itemRevenueCents = itemFinancials.length
+      ? itemFinancials.reduce((sum, item) => sum + item.revenueCents, 0)
+      : Math.max((order.totalCents ?? 0) - (order.shippingCents ?? 0) - (order.taxCents ?? 0), 0);
+    const revenueCents = itemRevenueCents + (order.shippingCents ?? 0);
+    const shippingCostCents = this.calculateShipmentCostCents(order.shipments ?? []);
+    const shippingRevenueAllocations = this.allocateByRevenue(
+      itemFinancials,
+      order.shippingCents ?? 0,
+      itemRevenueCents,
+    );
+    const feeAllocations = this.allocateByRevenue(itemFinancials, order.feeCents ?? 0, itemRevenueCents);
+    const shippingCostAllocations = this.allocateByRevenue(
+      itemFinancials,
+      shippingCostCents,
+      itemRevenueCents,
+    );
     const itemsWithProfit = itemFinancials.map((item, index) => {
+      const revenueWithShippingCents = item.revenueCents + (shippingRevenueAllocations[index] ?? 0);
       const feeCents = feeAllocations[index] ?? 0;
-      const shippingCostCents = shippingAllocations[index] ?? 0;
-      const grossProfitCents = item.revenueCents - feeCents - shippingCostCents - item.costBasisCents;
+      const itemShippingCostCents = shippingCostAllocations[index] ?? 0;
+      const grossProfitCents =
+        revenueWithShippingCents - feeCents - itemShippingCostCents - item.costBasisCents;
 
       return {
-        revenueCents: item.revenueCents,
+        revenueCents: revenueWithShippingCents,
         feeCents,
-        shippingCostCents,
+        shippingCostCents: itemShippingCostCents,
         costBasisCents: item.costBasisCents,
         grossProfitCents,
         roiPercent:
@@ -183,15 +198,14 @@ export class OrdersService {
       };
     });
     const costBasisCents = itemsWithProfit.reduce((sum, item) => sum + item.costBasisCents, 0);
-    const grossProfitCents =
-      revenueCents - (order.feeCents ?? 0) - (order.shippingCents ?? 0) - costBasisCents;
+    const grossProfitCents = revenueCents - (order.feeCents ?? 0) - shippingCostCents - costBasisCents;
 
     return {
       items: itemsWithProfit,
       summary: {
         revenueCents,
         feeCents: order.feeCents ?? 0,
-        shippingCostCents: order.shippingCents ?? 0,
+        shippingCostCents,
         taxCents: order.taxCents ?? 0,
         costBasisCents,
         grossProfitCents,
@@ -199,6 +213,25 @@ export class OrdersService {
           costBasisCents > 0 ? Number(((grossProfitCents / costBasisCents) * 100).toFixed(1)) : null,
       },
     };
+  }
+
+  private calculateShipmentCostCents(shipments: Array<{ status?: string | null; rateAmount?: unknown }>) {
+    return shipments.reduce((sum, shipment) => {
+      if (shipment.status === 'VOIDED') {
+        return sum;
+      }
+
+      return sum + this.moneyToCents(shipment.rateAmount);
+    }, 0);
+  }
+
+  private moneyToCents(value: unknown) {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    const amount = typeof value === 'object' && 'toString' in value ? Number(value.toString()) : Number(value);
+    return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
   }
 
   private allocateByRevenue(

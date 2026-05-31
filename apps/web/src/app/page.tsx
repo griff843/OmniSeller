@@ -145,6 +145,7 @@ function OrderQueue({
 
 function Dashboard({ summary }: { summary: DashboardSummary }) {
   const roi = summary.profit.roiPercent === null ? '--' : `${summary.profit.roiPercent}%`;
+  const profitWindow = `Last ${summary.period.orderWindowDays} days`;
 
   return (
     <main className="px-6 py-8">
@@ -170,8 +171,8 @@ function Dashboard({ summary }: { summary: DashboardSummary }) {
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Inventory value" value={formatCents(summary.inventory.valueCents)} detail={`${summary.inventory.total} items on hand`} />
           <Metric label="Active listings" value={String(summary.listings.active)} detail={formatCents(summary.listings.activeValueCents)} />
-          <Metric label="Gross profit" value={formatCents(summary.profit.grossProfitCents)} detail={`ROI ${roi}`} />
-          <Metric label="Ship today" value={String(summary.orders.requiringShipping)} detail={`${summary.orders.total} total orders`} />
+          <Metric label="Gross profit" value={formatCents(summary.profit.grossProfitCents)} detail={`${profitWindow} / ROI ${roi}`} />
+          <Metric label="Unshipped orders" value={String(summary.orders.requiringShipping)} detail={`${summary.orders.total} orders in window`} />
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

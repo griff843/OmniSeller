@@ -30,13 +30,17 @@ describe('EbayFulfillmentSyncService', () => {
   const configService = {
     get: jest.fn(() => 'https://api.sandbox.ebay.test'),
   } as unknown as ConfigService;
+  const ebayTokenService = {
+    getValidAccessToken: jest.fn().mockResolvedValue('token_1'),
+  };
 
-  const service = new EbayFulfillmentSyncService(configService);
+  const service = new EbayFulfillmentSyncService(configService, ebayTokenService as any);
   const mockedFetch = fetch as unknown as jest.Mock;
   const mockedPrisma: any = prisma;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    ebayTokenService.getValidAccessToken.mockResolvedValue('token_1');
   });
 
   it('leaves a recoverable purchased shipment state when eBay sync fails', async () => {

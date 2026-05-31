@@ -5,14 +5,18 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MarketplaceAccount, Prisma, ShipmentStatus, prisma } from '@omniseller/db';
+import { Prisma, ShipmentStatus, prisma } from '@omniseller/db';
 import fetch from 'node-fetch';
+import { EbayTokenService } from '../ebay/ebay-token.service';
 
 @Injectable()
 export class EbayFulfillmentSyncService {
   private readonly logger = new Logger(EbayFulfillmentSyncService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly ebayTokenService: EbayTokenService,
+  ) {}
 
   async syncTrackingForShipment(shipmentId: string): Promise<void> {
     const shipment = await prisma.shipment.findUnique({
@@ -67,7 +71,7 @@ export class EbayFulfillmentSyncService {
       );
     }
 
-    const accessToken = await this.getValidEbayAccessToken(marketplaceAccount);
+    const accessToken = await this.ebayTokenService.getValidAccessToken(marketplaceAccount);
     const baseUrl = this.configService.get<string>('EBAY_API_BASE') ?? 'https://api.ebay.com';
 
     const response = await fetch(
@@ -150,75 +154,6 @@ export class EbayFulfillmentSyncService {
       default:
         return carrier?.toUpperCase() ?? 'OTHER';
     }
-  }
-
-  private async getValidEbayAccessToken(account: MarketplaceAccount): Promise<string> {
-    const expiresAt = account.expiresAt ? new Date(account.expiresAt) : null;
-
-    if (account.accessToken && expiresAt && expiresAt.getTime() > Date.now() + 60_000) {
-      return account.accessToken;
-    }
-
-    if (!account.refreshToken) {
-      throw new BadRequestException(`Marketplace account ${account.id} is missing refreshToken`);
-    }
-
-    const refreshed = await this.refreshEbayToken(account.refreshToken);
-
-    await prisma.marketplaceAccount.update({
-      where: { id: account.id },
-      data: {
-        accessToken: refreshed.accessToken,
-        expiresAt: refreshed.expiresAt,
-      },
-    });
-
-    return refreshed.accessToken;
-  }
-
-  private async refreshEbayToken(
-    refreshToken: string,
-  ): Promise<{ accessToken: string; expiresAt: Date }> {
-    const clientId = process.env.EBAY_CLIENT_ID;
-    const clientSecret = process.env.EBAY_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
-      throw new InternalServerErrorException('Missing eBay OAuth client credentials');
-    }
-
-    const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
-    const response = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        scope:
-          'https://api.ebay.com/oauth/api_scope/sell.fulfillment ' +
-          'https://api.ebay.com/oauth/api_scope/sell.inventory',
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new InternalServerErrorException(
-        `Failed to refresh eBay token: ${response.status} ${body}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
-
-    return {
-      accessToken: data.access_token,
-      expiresAt: new Date(Date.now() + data.expires_in * 1000),
-    };
   }
 
   private mergeMetadata(current: unknown, extra: Record<string, unknown>): Prisma.JsonObject {

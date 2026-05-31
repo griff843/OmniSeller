@@ -8,6 +8,7 @@ type ProfitInput = {
   totalCents: number;
   feeCents: number;
   shippingCents: number;
+  taxCents?: number;
   items?: Array<{
     quantity: number;
     salePriceCents: number;
@@ -15,22 +16,32 @@ type ProfitInput = {
       costBasisCents: number;
     } | null;
   }>;
+  shipments?: Array<{
+    status?: string | null;
+    rateAmount?: unknown;
+  }>;
 };
+
+const DASHBOARD_PREVIEW_LIMIT = 5;
+const DASHBOARD_WORK_QUEUE_LIMIT = 200;
+const DASHBOARD_ORDER_WINDOW_DAYS = 30;
 
 export function calculateProfitSummary(orders: ProfitInput[]) {
   const totals = orders.reduce(
     (summary, order) => {
-      const orderRevenue = order.items?.length
+      const itemRevenueCents = order.items?.length
         ? order.items.reduce((sum, item) => sum + item.salePriceCents * item.quantity, 0)
-        : order.totalCents;
+        : Math.max(order.totalCents - (order.shippingCents ?? 0) - (order.taxCents ?? 0), 0);
+      const revenueCents = itemRevenueCents + (order.shippingCents ?? 0);
+      const shippingCostCents = calculateShipmentCostCents(order.shipments ?? []);
       const costBasis = (order.items ?? []).reduce(
         (sum, item) => sum + (item.inventoryItem?.costBasisCents ?? 0) * item.quantity,
         0,
       );
 
-      summary.revenueCents += orderRevenue;
+      summary.revenueCents += revenueCents;
       summary.feeCents += order.feeCents;
-      summary.shippingCostCents += order.shippingCents;
+      summary.shippingCostCents += shippingCostCents;
       summary.costBasisCents += costBasis;
       return summary;
     },
@@ -55,12 +66,32 @@ export function calculateProfitSummary(orders: ProfitInput[]) {
   };
 }
 
+export function calculateShipmentCostCents(shipments: Array<{ status?: string | null; rateAmount?: unknown }>) {
+  return shipments.reduce((sum, shipment) => {
+    if (shipment.status === 'VOIDED') {
+      return sum;
+    }
+
+    return sum + moneyToCents(shipment.rateAmount);
+  }, 0);
+}
+
+function moneyToCents(value: unknown) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  const amount = typeof value === 'object' && 'toString' in value ? Number(value.toString()) : Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
+}
+
 @Injectable()
 export class DashboardService {
   async getSummary(userId?: string): Promise<unknown> {
     const ownerId = resolveUserId(userId);
+    const orderWindowStart = new Date(Date.now() - DASHBOARD_ORDER_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-    const [items, listings, orders] = await Promise.all([
+    const [items, inventoryTotal, inventoryValue, readinessCountsRaw, saleCountsRaw, publishCountsRaw, listings, listingTotal, activeListingTotal, activeListingValue, orders, orderTotal] = await Promise.all([
       prisma.inventoryItem.findMany({
         where: { userId: ownerId },
         select: {
@@ -76,7 +107,30 @@ export class DashboardService {
           updatedAt: true,
         },
         orderBy: { updatedAt: 'desc' },
+        take: DASHBOARD_WORK_QUEUE_LIMIT,
       } as any),
+      prisma.inventoryItem.count({
+        where: { userId: ownerId },
+      } as any),
+      prisma.inventoryItem.aggregate({
+        where: { userId: ownerId },
+        _sum: { costBasisCents: true },
+      } as any),
+      (prisma.inventoryItem as any).groupBy({
+        by: ['listingReadiness'],
+        where: { userId: ownerId },
+        _count: { _all: true },
+      }),
+      (prisma.inventoryItem as any).groupBy({
+        by: ['saleStatus'],
+        where: { userId: ownerId },
+        _count: { _all: true },
+      }),
+      (prisma.inventoryItem as any).groupBy({
+        by: ['publishStatus'],
+        where: { userId: ownerId },
+        _count: { _all: true },
+      }),
       prisma.listing.findMany({
         where: {
           account: {
@@ -88,11 +142,40 @@ export class DashboardService {
           status: true,
           priceCents: true,
         },
+        orderBy: { updatedAt: 'desc' },
+        take: DASHBOARD_WORK_QUEUE_LIMIT,
+      } as any),
+      prisma.listing.count({
+        where: {
+          account: {
+            userId: ownerId,
+          },
+        },
+      } as any),
+      prisma.listing.count({
+        where: {
+          account: {
+            userId: ownerId,
+          },
+          status: 'active',
+        },
+      } as any),
+      prisma.listing.aggregate({
+        where: {
+          account: {
+            userId: ownerId,
+          },
+          status: 'active',
+        },
+        _sum: { priceCents: true },
       } as any),
       prisma.order.findMany({
         where: {
           marketplaceAccount: {
             userId: ownerId,
+          },
+          createdAt: {
+            gte: orderWindowStart,
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -122,12 +205,22 @@ export class DashboardService {
           },
         },
       } as any),
+      prisma.order.count({
+        where: {
+          marketplaceAccount: {
+            userId: ownerId,
+          },
+          createdAt: {
+            gte: orderWindowStart,
+          },
+        },
+      } as any),
     ]);
 
-    const readinessCounts = this.countBy(items, 'listingReadiness');
-    const saleLifecycleCounts = this.countBy(items, 'saleStatus');
-    const publishCounts = this.countBy(items, 'publishStatus');
-    const inventoryValueCents = items.reduce((sum: number, item: any) => sum + (item.costBasisCents ?? 0), 0);
+    const readinessCounts = this.serializeGroupCounts(readinessCountsRaw, 'listingReadiness');
+    const saleLifecycleCounts = this.serializeGroupCounts(saleCountsRaw, 'saleStatus');
+    const publishCounts = this.serializeGroupCounts(publishCountsRaw, 'publishStatus');
+    const inventoryValueCents = inventoryValue._sum?.costBasisCents ?? 0;
     const activeListings = listings.filter((listing: any) => listing.status === 'active');
     const profit = calculateProfitSummary(orders as ProfitInput[]);
     const ordersRequiringShipping = orders.filter((order: any) => {
@@ -137,8 +230,12 @@ export class DashboardService {
 
     return {
       generatedAt: new Date().toISOString(),
+      period: {
+        orderWindowDays: DASHBOARD_ORDER_WINDOW_DAYS,
+        orderWindowStart: orderWindowStart.toISOString(),
+      },
       inventory: {
-        total: items.length,
+        total: inventoryTotal,
         valueCents: inventoryValueCents,
         readiness: readinessCounts,
         saleLifecycle: saleLifecycleCounts,
@@ -153,15 +250,15 @@ export class DashboardService {
         },
       },
       listings: {
-        total: listings.length,
-        active: activeListings.length,
-        activeValueCents: activeListings.reduce((sum: number, listing: any) => sum + listing.priceCents, 0),
+        total: listingTotal,
+        active: activeListingTotal,
+        activeValueCents: activeListingValue._sum?.priceCents ?? activeListings.reduce((sum: number, listing: any) => sum + listing.priceCents, 0),
       },
       orders: {
-        total: orders.length,
+        total: orderTotal,
         requiringShipping: ordersRequiringShipping.length,
-        recentSales: orders.slice(0, 5).map((order: any) => this.serializeOrderPreview(order)),
-        shippingQueue: ordersRequiringShipping.slice(0, 5).map((order: any) => this.serializeOrderPreview(order)),
+        recentSales: orders.slice(0, DASHBOARD_PREVIEW_LIMIT).map((order: any) => this.serializeOrderPreview(order)),
+        shippingQueue: ordersRequiringShipping.slice(0, DASHBOARD_PREVIEW_LIMIT).map((order: any) => this.serializeOrderPreview(order)),
       },
       profit,
       workQueues: {
@@ -170,33 +267,26 @@ export class DashboardService {
         readyToPublish: this.queueByReadiness(items, 'READY_TO_PUBLISH'),
         publishBlocked: items
           .filter((item: any) => ['FAILED', 'UNAVAILABLE', 'BLOCKED'].includes(item.publishStatus))
-          .slice(0, 5)
+          .slice(0, DASHBOARD_PREVIEW_LIMIT)
           .map((item: any) => this.serializeInventoryPreview(item)),
         shippingError: orders
           .filter((order: any) => order.shipments?.[0]?.status === 'ERROR')
-          .slice(0, 5)
+          .slice(0, DASHBOARD_PREVIEW_LIMIT)
           .map((order: any) => this.serializeOrderPreview(order)),
       },
     };
   }
 
-  private countBy(items: any[], field: string): CountBucket[] {
-    const counts = new Map<string, number>();
-
-    for (const item of items) {
-      const key = item[field] ?? 'UNKNOWN';
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-
-    return Array.from(counts.entries())
-      .map(([key, count]) => ({ key, count }))
+  private serializeGroupCounts(groups: any[], field: string): CountBucket[] {
+    return groups
+      .map((group) => ({ key: group[field] ?? 'UNKNOWN', count: group._count?._all ?? 0 }))
       .sort((a, b) => a.key.localeCompare(b.key));
   }
 
   private queueByReadiness(items: any[], readiness: string) {
     return items
       .filter((item) => item.listingReadiness === readiness)
-      .slice(0, 5)
+      .slice(0, DASHBOARD_PREVIEW_LIMIT)
       .map((item) => this.serializeInventoryPreview(item));
   }
 

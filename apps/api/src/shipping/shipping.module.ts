@@ -7,10 +7,12 @@ import { EasyPostClient } from './providers/easypost.client';
 import { ShippingProcessor } from './shipping.processor';
 import { EbayFulfillmentSyncService } from './ebay-fulfillment-sync.service';
 import { SHIPPING_SYNC_QUEUE } from './shipping.constants';
+import { EbayModule } from '../ebay/ebay.module';
 
 @Module({
   imports: [
     ConfigModule,
+    EbayModule,
     BullModule.registerQueue({
       name: SHIPPING_SYNC_QUEUE,
     }),

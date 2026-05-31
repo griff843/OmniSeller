@@ -35,6 +35,10 @@ export type DashboardOrderPreview = {
 
 export type DashboardSummary = {
   generatedAt: string;
+  period: {
+    orderWindowDays: number;
+    orderWindowStart: string;
+  };
   inventory: {
     total: number;
     valueCents: number;
