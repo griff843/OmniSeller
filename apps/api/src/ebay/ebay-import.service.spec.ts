@@ -12,6 +12,11 @@ jest.mock('@omniseller/db', () => ({
       findMany: jest.fn(),
       upsert: jest.fn(),
     },
+    marketplaceImportConflict: {
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
+      upsert: jest.fn(),
+    },
     listing: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -62,6 +67,9 @@ describe('EbayImportService', () => {
     prisma.marketplaceAccount.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.upsert.mockResolvedValue({});
+    prisma.marketplaceImportConflict.findMany.mockResolvedValue([]);
+    prisma.marketplaceImportConflict.updateMany.mockResolvedValue({ count: 0 });
+    prisma.marketplaceImportConflict.upsert.mockResolvedValue({});
   });
 
   it('rejects sync when no eBay account is connected', async () => {
@@ -250,6 +258,116 @@ describe('EbayImportService', () => {
       }),
     );
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('records a conflict when imported listing data differs from a local listing draft', async () => {
+    prisma.listing.findFirst.mockResolvedValue({
+      id: 'listing_1',
+      inventoryItemId: 'item_1',
+      inventoryItem: {
+        id: 'item_1',
+        saleStatus: 'LISTED',
+        publishStatus: 'PUBLISHED',
+        listingDraft: {
+          title: 'Local jacket title',
+          description: 'Local description',
+          category: 'Jackets',
+          priceCents: 5200,
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      },
+    });
+    prisma.listing.upsert.mockResolvedValue({ id: 'listing_1' });
+
+    await service.importSnapshot(account as any, {
+      listings: [
+        {
+          marketplaceItemId: '123-ABC',
+          title: 'Marketplace jacket title',
+          description: 'Local description',
+          category: 'Jackets',
+          priceCents: 4200,
+          quantity: 1,
+          status: 'active',
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      ],
+    });
+
+    expect(prisma.marketplaceImportConflict.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          marketplaceAccountId_resource_entityType_remoteEntityId: {
+            marketplaceAccountId: 'acct_1',
+            resource: 'LISTINGS',
+            entityType: 'listing',
+            remoteEntityId: '123-ABC',
+          },
+        },
+        create: expect.objectContaining({
+          marketplaceAccountId: 'acct_1',
+          resource: 'LISTINGS',
+          entityType: 'listing',
+          remoteEntityId: '123-ABC',
+          localEntityId: 'listing_1',
+          status: 'OPEN',
+          fieldDiffs: expect.arrayContaining([
+            { field: 'title', local: 'Local jacket title', remote: 'Marketplace jacket title' },
+            { field: 'priceCents', local: 5200, remote: 4200 },
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('resolves an open listing conflict when the local draft matches imported data', async () => {
+    prisma.listing.findFirst.mockResolvedValue({
+      id: 'listing_1',
+      inventoryItemId: 'item_1',
+      inventoryItem: {
+        id: 'item_1',
+        saleStatus: 'LISTED',
+        publishStatus: 'PUBLISHED',
+        listingDraft: {
+          title: 'Marketplace jacket title',
+          description: 'Marketplace description',
+          category: 'Jackets',
+          priceCents: 4200,
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      },
+    });
+    prisma.listing.upsert.mockResolvedValue({ id: 'listing_1' });
+
+    await service.importSnapshot(account as any, {
+      listings: [
+        {
+          marketplaceItemId: '123-ABC',
+          title: 'Marketplace jacket title',
+          description: 'Marketplace description',
+          category: 'Jackets',
+          priceCents: 4200,
+          quantity: 1,
+          status: 'active',
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      ],
+    });
+
+    expect(prisma.marketplaceImportConflict.updateMany).toHaveBeenCalledWith({
+      where: {
+        marketplaceAccountId: 'acct_1',
+        resource: 'LISTINGS',
+        entityType: 'listing',
+        remoteEntityId: '123-ABC',
+        status: 'OPEN',
+      },
+      data: expect.objectContaining({
+        status: 'RESOLVED',
+        resolvedAt: expect.any(Date),
+      }),
+    });
+    expect(prisma.marketplaceImportConflict.upsert).not.toHaveBeenCalled();
   });
 
   it('scopes existing order lookup and upsert to the importing marketplace account', async () => {

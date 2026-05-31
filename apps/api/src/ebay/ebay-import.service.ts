@@ -15,6 +15,20 @@ import {
 const RESOURCE_LIST: EbayImportResource[] = ['LISTINGS', 'ORDERS'];
 const TERMINAL_SALE_STATES = new Set(['RESERVED', 'SOLD', 'SHIPPED']);
 
+type ListingDraftSnapshot = {
+  title?: string | null;
+  description?: string | null;
+  category?: string | null;
+  priceCents?: number | null;
+  itemSpecifics?: Record<string, unknown> | null;
+};
+
+type ImportFieldDiff = {
+  field: keyof ListingDraftSnapshot;
+  local: unknown;
+  remote: unknown;
+};
+
 @Injectable()
 export class EbayImportService {
   constructor(
@@ -178,7 +192,13 @@ export class EbayImportService {
           marketplaceAccountId: account.id,
           marketplaceItemId: imported.marketplaceItemId,
         },
-        include: { inventoryItem: true },
+        include: {
+          inventoryItem: {
+            include: {
+              listingDraft: true,
+            },
+          },
+        },
       } as any);
       const inventoryItem =
         existingListing?.inventoryItem ?? (await this.createPlaceholderInventoryItem(account, imported));
@@ -202,6 +222,7 @@ export class EbayImportService {
       }
 
       await this.applyListingLifecycle(inventoryItem, imported, listing.id);
+      await this.recordListingDraftConflict(account.id, listing.id, inventoryItem.listingDraft, imported);
     }
 
     return this.markSyncCompleted(account.id, 'LISTINGS', listings.length, created, updated, cursor);
@@ -329,6 +350,145 @@ export class EbayImportService {
         publishedAt: listing.publishedAt ? new Date(listing.publishedAt) : undefined,
       },
     } as any);
+  }
+
+  private async recordListingDraftConflict(
+    marketplaceAccountId: string,
+    listingId: string,
+    draft: ListingDraftSnapshot | null | undefined,
+    imported: ImportedEbayListing,
+  ) {
+    if (!draft) {
+      return;
+    }
+
+    const localSnapshot = this.toDraftSnapshot(draft);
+    const remoteSnapshot = this.toImportedListingSnapshot(imported);
+    const fieldDiffs = this.diffListingDraft(localSnapshot, remoteSnapshot);
+    const now = new Date();
+
+    if (fieldDiffs.length === 0) {
+      await prisma.marketplaceImportConflict.updateMany({
+        where: {
+          marketplaceAccountId,
+          resource: 'LISTINGS',
+          entityType: 'listing',
+          remoteEntityId: imported.marketplaceItemId,
+          status: 'OPEN',
+        },
+        data: {
+          status: 'RESOLVED',
+          lastSeenAt: now,
+          resolvedAt: now,
+        },
+      } as any);
+      return;
+    }
+
+    await prisma.marketplaceImportConflict.upsert({
+      where: {
+        marketplaceAccountId_resource_entityType_remoteEntityId: {
+          marketplaceAccountId,
+          resource: 'LISTINGS',
+          entityType: 'listing',
+          remoteEntityId: imported.marketplaceItemId,
+        },
+      },
+      create: {
+        marketplaceAccountId,
+        resource: 'LISTINGS',
+        entityType: 'listing',
+        remoteEntityId: imported.marketplaceItemId,
+        localEntityId: listingId,
+        status: 'OPEN',
+        fieldDiffs,
+        localSnapshot,
+        remoteSnapshot,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+      update: {
+        localEntityId: listingId,
+        status: 'OPEN',
+        fieldDiffs,
+        localSnapshot,
+        remoteSnapshot,
+        lastSeenAt: now,
+        resolvedAt: null,
+      },
+    } as any);
+  }
+
+  private toDraftSnapshot(draft: ListingDraftSnapshot): ListingDraftSnapshot {
+    return {
+      title: draft.title ?? null,
+      description: draft.description ?? null,
+      category: draft.category ?? null,
+      priceCents: draft.priceCents ?? null,
+      itemSpecifics: this.normalizeObject(draft.itemSpecifics),
+    };
+  }
+
+  private toImportedListingSnapshot(listing: ImportedEbayListing): ListingDraftSnapshot {
+    return {
+      title: listing.title ?? null,
+      description: listing.description ?? null,
+      category: listing.category ?? null,
+      priceCents: listing.priceCents,
+      itemSpecifics: this.normalizeObject(listing.itemSpecifics),
+    };
+  }
+
+  private diffListingDraft(local: ListingDraftSnapshot, remote: ListingDraftSnapshot): ImportFieldDiff[] {
+    const fields: Array<keyof ListingDraftSnapshot> = ['title', 'description', 'category', 'priceCents', 'itemSpecifics'];
+
+    return fields.reduce<ImportFieldDiff[]>((diffs, field) => {
+      const localValue = local[field];
+
+      if (localValue === null || localValue === undefined || localValue === '') {
+        return diffs;
+      }
+
+      const remoteValue = remote[field] ?? null;
+      const localComparable = this.toComparableValue(localValue);
+      const remoteComparable = this.toComparableValue(remoteValue);
+
+      if (localComparable !== remoteComparable) {
+        diffs.push({ field, local: localValue, remote: remoteValue });
+      }
+
+      return diffs;
+    }, []);
+  }
+
+  private normalizeObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, entryValue]) => entryValue !== null && entryValue !== undefined);
+    if (entries.length === 0) {
+      return null;
+    }
+
+    return entries
+      .sort(([left], [right]) => left.localeCompare(right))
+      .reduce<Record<string, unknown>>((normalized, [key, entryValue]) => {
+        normalized[key] = entryValue;
+        return normalized;
+      }, {});
+  }
+
+  private toComparableValue(value: unknown) {
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+
+    if (value && typeof value === 'object') {
+      return JSON.stringify(this.normalizeObject(value));
+    }
+
+    return value;
   }
 
   private toListingData(listing: ImportedEbayListing, inventoryItemId: string, marketplaceAccountId: string) {

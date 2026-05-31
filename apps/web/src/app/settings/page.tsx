@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { prisma } from '@omniseller/db';
+import { prisma, type MarketplaceImportConflict } from '@omniseller/db';
 import { StatusBadge, type BadgeTone } from '@/components/shipping/status-badge';
 import { fetchApi } from '@/lib/api-base';
 import { requireUser } from '@/lib/requireUser';
@@ -29,6 +29,13 @@ type SettingsStatus = {
     enabled: boolean;
     intervalMinutes: number;
   };
+  importConflicts: Array<{
+    id: string;
+    remoteEntityId: string;
+    localEntityId: string | null;
+    fieldDiffs: Array<{ field: string; local: unknown; remote: unknown }>;
+    lastSeenAt: Date | null;
+  }>;
 };
 
 type StatusCard = {
@@ -124,6 +131,29 @@ function buildStatusCards(status: SettingsStatus): StatusCard[] {
   ];
 }
 
+function summarizeConflictFields(fieldDiffs: Array<{ field: string }>) {
+  if (fieldDiffs.length === 0) return 'Details changed';
+  return fieldDiffs.map((diff) => diff.field).join(', ');
+}
+
+function parseFieldDiffs(value: unknown): Array<{ field: string; local: unknown; remote: unknown }> {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || !('field' in entry) || typeof entry.field !== 'string') {
+      return [];
+    }
+
+    return [
+      {
+        field: entry.field,
+        local: 'local' in entry ? entry.local : null,
+        remote: 'remote' in entry ? entry.remote : null,
+      },
+    ];
+  });
+}
+
 async function loadSettingsStatus(): Promise<SettingsStatus> {
   const user = await requireUser();
   const ebayAccount = await prisma.marketplaceAccount.findFirst({
@@ -143,6 +173,16 @@ async function loadSettingsStatus(): Promise<SettingsStatus> {
     ? await prisma.marketplaceSyncState.findMany({
         where: { marketplaceAccountId: ebayAccount.id },
         orderBy: { resource: 'asc' },
+      })
+    : [];
+  const importConflicts: MarketplaceImportConflict[] = ebayAccount
+    ? await prisma.marketplaceImportConflict.findMany({
+        where: {
+          marketplaceAccountId: ebayAccount.id,
+          status: 'OPEN',
+        },
+        orderBy: { lastSeenAt: 'desc' },
+        take: 10,
       })
     : [];
   const configuredSyncInterval = Number(process.env.EBAY_SYNC_INTERVAL_MINUTES);
@@ -166,6 +206,13 @@ async function loadSettingsStatus(): Promise<SettingsStatus> {
       enabled: process.env.EBAY_SYNC_SCHEDULE_ENABLED !== 'false',
       intervalMinutes: Number.isFinite(configuredSyncInterval) && configuredSyncInterval > 0 ? configuredSyncInterval : 30,
     },
+    importConflicts: importConflicts.map((conflict) => ({
+      id: conflict.id,
+      remoteEntityId: conflict.remoteEntityId,
+      localEntityId: conflict.localEntityId ?? null,
+      fieldDiffs: parseFieldDiffs(conflict.fieldDiffs),
+      lastSeenAt: conflict.lastSeenAt ? new Date(conflict.lastSeenAt) : null,
+    })),
   };
 }
 
@@ -304,6 +351,43 @@ export default async function SettingsPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-950">Import conflicts</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Local listing drafts that differ from the latest imported marketplace values.
+                  </p>
+                </div>
+                <StatusBadge tone={settingsStatus.importConflicts.length > 0 ? 'warning' : 'success'}>
+                  {settingsStatus.importConflicts.length} open
+                </StatusBadge>
+              </div>
+              {settingsStatus.importConflicts.length > 0 ? (
+                <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-white text-xs uppercase tracking-[0.16em] text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Marketplace item</th>
+                        <th className="px-4 py-3 font-semibold">Changed fields</th>
+                        <th className="px-4 py-3 font-semibold">Last seen</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {settingsStatus.importConflicts.map((conflict) => (
+                        <tr key={conflict.id}>
+                          <td className="px-4 py-3 font-medium text-slate-950">{conflict.remoteEntityId}</td>
+                          <td className="px-4 py-3 text-slate-700">{summarizeConflictFields(conflict.fieldDiffs)}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {conflict.lastSeenAt ? conflict.lastSeenAt.toLocaleString() : 'Unknown'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}

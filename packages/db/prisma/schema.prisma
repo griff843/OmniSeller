@@ -88,6 +88,7 @@ model MarketplaceAccount {
   listings  Listing[]
   orders    Order[]
   syncStates MarketplaceSyncState[]
+  importConflicts MarketplaceImportConflict[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -108,6 +109,12 @@ enum MarketplaceSyncStatus {
   FAILED
 }
 
+enum MarketplaceImportConflictStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
 model MarketplaceSyncState {
   id                   String                  @id @default(cuid())
   marketplaceAccountId String
@@ -125,6 +132,31 @@ model MarketplaceSyncState {
   updatedAt DateTime @updatedAt
 
   @@unique([marketplaceAccountId, resource])
+  @@index([resource, status])
+}
+
+model MarketplaceImportConflict {
+  id                   String                          @id @default(cuid())
+  marketplaceAccountId String
+  resource             MarketplaceSyncResource
+  entityType           String
+  remoteEntityId       String
+  localEntityId        String?
+  status               MarketplaceImportConflictStatus @default(OPEN)
+  fieldDiffs           Json
+  localSnapshot        Json
+  remoteSnapshot       Json
+  firstSeenAt          DateTime                        @default(now())
+  lastSeenAt           DateTime                        @default(now())
+  resolvedAt           DateTime?
+
+  account MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([marketplaceAccountId, resource, entityType, remoteEntityId])
+  @@index([marketplaceAccountId, status])
   @@index([resource, status])
 }
 
