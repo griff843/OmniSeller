@@ -4,12 +4,16 @@ import { auth, signInWithCredentials } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
+function safeCallbackUrl(callbackUrl?: string | null) {
+  return callbackUrl?.startsWith('/') && !callbackUrl.startsWith('//') ? callbackUrl : '/';
+}
+
 async function login(formData: FormData) {
   'use server';
 
   const email = String(formData.get('email') ?? '');
   const name = String(formData.get('name') ?? '');
-  const callbackUrl = String(formData.get('callbackUrl') ?? '/') || '/';
+  const callbackUrl = safeCallbackUrl(String(formData.get('callbackUrl') ?? '/') || '/');
 
   try {
     await signInWithCredentials({
@@ -34,10 +38,10 @@ export default async function LoginPage({
   const session = await auth();
 
   if (session?.user) {
-    redirect(searchParams?.callbackUrl ?? '/');
+    redirect(safeCallbackUrl(searchParams?.callbackUrl));
   }
 
-  const callbackUrl = searchParams?.callbackUrl ?? '/';
+  const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-10">

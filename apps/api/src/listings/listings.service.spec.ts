@@ -34,6 +34,7 @@ describe('ListingsService', () => {
   it('rejects publish when the item is not ready and persists a blocked state', async () => {
     prisma.inventoryItem.findUnique.mockResolvedValue({
       id: 'item_1',
+      userId: 'dev-user',
       title: 'Vintage Camera',
       condition: 'Used',
       saleStatus: 'AVAILABLE',
@@ -57,7 +58,7 @@ describe('ListingsService', () => {
       publishError: 'Upload at least one ready photo to unlock AI and listing workflows.',
     });
 
-    await expect(service.enqueuePublish('item_1', 'ebay')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -101,7 +102,7 @@ describe('ListingsService', () => {
       publishError: 'Connect an eBay marketplace account before publishing.',
     });
 
-    await expect(service.enqueuePublish('item_1', 'ebay')).rejects.toBeInstanceOf(
+    await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
     expect(add).not.toHaveBeenCalled();
@@ -150,7 +151,7 @@ describe('ListingsService', () => {
       publishError: null,
     });
 
-    const result = (await service.enqueuePublish('item_1', 'ebay')) as { status: string };
+    const result = (await service.enqueuePublish('item_1', 'ebay', 'dev-user')) as { status: string };
 
     expect(add).toHaveBeenCalledWith('publish', { inventoryItemId: 'item_1', marketplace: 'ebay' });
     expect(result.status).toBe('QUEUED');
@@ -176,13 +177,13 @@ describe('ListingsService', () => {
       listings: [],
     });
 
-    await expect(service.enqueuePublish('item_1', 'ebay')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(ConflictException);
     expect(add).not.toHaveBeenCalled();
   });
 
   it('throws not found when the inventory item does not exist', async () => {
     prisma.inventoryItem.findUnique.mockResolvedValue(null);
 
-    await expect(service.enqueuePublish('missing', 'ebay')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.enqueuePublish('missing', 'ebay', 'dev-user')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

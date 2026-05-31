@@ -307,7 +307,7 @@ export class ShippingService {
       },
     });
 
-    if (!shipment || (shipment.order && !ownsRecord(shipment.order.marketplaceAccount?.userId, ownerId))) {
+    if (!shipment || !shipment.order || !ownsRecord(shipment.order.marketplaceAccount?.userId, ownerId)) {
       throw new BadRequestException(`Shipment ${shipmentId} not found`);
     }
 

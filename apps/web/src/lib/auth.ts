@@ -18,6 +18,13 @@ export const authConfig: NextAuthConfig = {
         name: { label: 'Name', type: 'text' },
       },
       async authorize(credentials) {
+        const allowPasswordlessLogin =
+          process.env.NODE_ENV !== 'production' || process.env.OMNISELLER_ALLOW_PASSWORDLESS_LOGIN === 'true';
+
+        if (!allowPasswordlessLogin) {
+          return null;
+        }
+
         const email = typeof credentials?.email === 'string' ? credentials.email.trim().toLowerCase() : '';
 
         if (!email) {

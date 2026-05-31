@@ -52,13 +52,13 @@ describe('OrdersService', () => {
         feeCents: 100,
         createdAt: new Date('2026-03-12T10:00:00.000Z'),
         updatedAt: new Date('2026-03-12T10:00:00.000Z'),
-        marketplaceAccount: { id: 'acct_1', kind: 'ebay', nickname: 'Test' },
+        marketplaceAccount: { id: 'acct_1', userId: 'dev-user', kind: 'ebay', nickname: 'Test' },
         items: [],
         shipments: [],
       },
     ]);
 
-    const result = (await service.list()) as any[];
+    const result = (await service.list('dev-user')) as any[];
 
     expect(result[0].fulfillment.status).toBe('UNAVAILABLE');
     expect(result[0].fulfillment.message).toContain('EASYPOST_API_KEY');
@@ -95,7 +95,7 @@ describe('OrdersService', () => {
       feeCents: 100,
       createdAt: new Date('2026-03-12T10:00:00.000Z'),
       updatedAt: new Date('2026-03-12T10:00:00.000Z'),
-      marketplaceAccount: { id: 'acct_1', kind: 'ebay', nickname: 'Test' },
+      marketplaceAccount: { id: 'acct_1', userId: 'dev-user', kind: 'ebay', nickname: 'Test' },
       items: [],
       shipments: [
         {
@@ -134,7 +134,7 @@ describe('OrdersService', () => {
       ],
     });
 
-    const result = (await service.get('order_1')) as any;
+    const result = (await service.get('order_1', 'dev-user')) as any;
 
     expect(result.fulfillment.status).toBe('UNAVAILABLE');
     expect(result.shipments[0].workflow.status).toBe('UNAVAILABLE');
