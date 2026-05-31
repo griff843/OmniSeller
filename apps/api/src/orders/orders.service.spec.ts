@@ -53,7 +53,21 @@ describe('OrdersService', () => {
         createdAt: new Date('2026-03-12T10:00:00.000Z'),
         updatedAt: new Date('2026-03-12T10:00:00.000Z'),
         marketplaceAccount: { id: 'acct_1', userId: 'dev-user', kind: 'ebay', nickname: 'Test' },
-        items: [],
+        items: [
+          {
+            id: 'item_line_1',
+            quantity: 1,
+            salePriceCents: 1000,
+            marketplaceLineItemId: 'line_1',
+            inventoryItem: {
+              id: 'item_1',
+              sku: 'SKU-1',
+              title: 'Camera',
+              costBasisCents: 400,
+            },
+            listing: null,
+          },
+        ],
         shipments: [],
       },
     ]);
@@ -62,6 +76,23 @@ describe('OrdersService', () => {
 
     expect(result[0].fulfillment.status).toBe('UNAVAILABLE');
     expect(result[0].fulfillment.message).toContain('EASYPOST_API_KEY');
+    expect(result[0].financials).toEqual({
+      revenueCents: 1000,
+      feeCents: 100,
+      shippingCostCents: 100,
+      taxCents: 0,
+      costBasisCents: 400,
+      grossProfitCents: 400,
+      roiPercent: 100,
+    });
+    expect(result[0].items[0].financials).toEqual({
+      revenueCents: 1000,
+      feeCents: 100,
+      shippingCostCents: 100,
+      costBasisCents: 400,
+      grossProfitCents: 400,
+      roiPercent: 100,
+    });
   });
 
   it('serializes shipment errors as unavailable when carrier config is missing', async () => {

@@ -97,12 +97,21 @@ export type OrderItem = {
     id: string;
     sku: string;
     title: string | null;
+    costBasisCents: number;
   } | null;
   listing: {
     id: string;
     marketplaceItemId: string | null;
     listingUrl?: string | null;
   } | null;
+  financials: {
+    revenueCents: number;
+    feeCents: number;
+    shippingCostCents: number;
+    costBasisCents: number;
+    grossProfitCents: number;
+    roiPercent: number | null;
+  };
 };
 
 export type Order = {
@@ -133,6 +142,15 @@ export type Order = {
   } | null;
   items: OrderItem[];
   shipments: Shipment[];
+  financials: {
+    revenueCents: number;
+    feeCents: number;
+    shippingCostCents: number;
+    taxCents: number;
+    costBasisCents: number;
+    grossProfitCents: number;
+    roiPercent: number | null;
+  };
   fulfillment: {
     provider: string;
     providerConfigured: boolean;

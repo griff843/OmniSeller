@@ -6,6 +6,10 @@ import { Order, formatCents } from '@/features/orders/types';
 
 export const dynamic = 'force-dynamic';
 
+function formatPercent(value: number | null) {
+  return value === null ? '--' : `${value}%`;
+}
+
 export default async function OrderDetailPage({ params }: { params: { id: string } }) {
   let order: Order;
 
@@ -67,10 +71,35 @@ export default async function OrderDetailPage({ params }: { params: { id: string
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="font-medium text-slate-950">{item.inventoryItem?.title ?? 'Untitled item'}</div>
-                      <div className="text-sm text-slate-600">SKU {item.inventoryItem?.sku ?? 'unlinked'} · Qty {item.quantity}</div>
+                      <div className="text-sm text-slate-600">SKU {item.inventoryItem?.sku ?? 'unlinked'} / Qty {item.quantity}</div>
                       <div className="text-sm text-slate-500">Marketplace line item {item.marketplaceLineItemId ?? item.listing?.marketplaceItemId ?? '--'}</div>
                     </div>
-                    <div className="text-sm font-medium text-slate-900">{formatCents(item.salePriceCents)}</div>
+                    <div className="text-right text-sm">
+                      <div className="font-medium text-slate-900">{formatCents(item.financials.revenueCents)}</div>
+                      <div className="text-xs text-slate-500">Profit {formatCents(item.financials.grossProfitCents)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 text-xs text-slate-600 sm:grid-cols-5">
+                    <div>
+                      <div className="font-semibold uppercase tracking-wide text-slate-400">Cost</div>
+                      <div className="mt-1 text-slate-800">{formatCents(item.financials.costBasisCents)}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold uppercase tracking-wide text-slate-400">Fees</div>
+                      <div className="mt-1 text-slate-800">{formatCents(item.financials.feeCents)}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold uppercase tracking-wide text-slate-400">Shipping</div>
+                      <div className="mt-1 text-slate-800">{formatCents(item.financials.shippingCostCents)}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold uppercase tracking-wide text-slate-400">ROI</div>
+                      <div className="mt-1 text-slate-800">{formatPercent(item.financials.roiPercent)}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold uppercase tracking-wide text-slate-400">Unit sale</div>
+                      <div className="mt-1 text-slate-800">{formatCents(item.salePriceCents)}</div>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -80,10 +109,23 @@ export default async function OrderDetailPage({ params }: { params: { id: string
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-950">Financials</h2>
             <div className="mt-4 space-y-3 text-sm text-slate-700">
-              <div className="flex items-center justify-between"><span>Item total</span><span>{formatCents(order.totalCents)}</span></div>
-              <div className="flex items-center justify-between"><span>Shipping charged</span><span>{formatCents(order.shippingCents)}</span></div>
-              <div className="flex items-center justify-between"><span>Tax</span><span>{formatCents(order.taxCents)}</span></div>
-              <div className="flex items-center justify-between"><span>Fees</span><span>{formatCents(order.feeCents)}</span></div>
+              <div className="flex items-center justify-between"><span>Item revenue</span><span>{formatCents(order.financials.revenueCents)}</span></div>
+              <div className="flex items-center justify-between"><span>Fees</span><span>{formatCents(order.financials.feeCents)}</span></div>
+              <div className="flex items-center justify-between"><span>Shipping cost</span><span>{formatCents(order.financials.shippingCostCents)}</span></div>
+              <div className="flex items-center justify-between"><span>Cost basis</span><span>{formatCents(order.financials.costBasisCents)}</span></div>
+              <div className="border-t border-slate-200 pt-3">
+                <div className="flex items-center justify-between font-semibold text-slate-950">
+                  <span>Gross profit</span>
+                  <span>{formatCents(order.financials.grossProfitCents)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span>ROI</span>
+                  <span>{formatPercent(order.financials.roiPercent)}</span>
+                </div>
+              </div>
+              <div className="border-t border-slate-100 pt-3 text-xs text-slate-500">
+                Tax collected is tracked separately: {formatCents(order.financials.taxCents)}.
+              </div>
             </div>
           </div>
         </section>

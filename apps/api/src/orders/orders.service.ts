@@ -54,6 +54,7 @@ export class OrdersService {
               id: true,
               sku: true,
               title: true,
+              costBasisCents: true,
             },
           },
           listing: {
@@ -75,6 +76,8 @@ export class OrdersService {
   private serializeOrder(order: any) {
     const shippingAvailability = this.shippingService.getAvailabilitySummary();
     const shipments = (order.shipments ?? []).map((shipment: any) => this.serializeShipment(shipment));
+    const items = order.items ?? [];
+    const financials = this.calculateFinancials(order, items);
     const latestShipment = shipments[0] ?? null;
     const latestShipmentState = deriveShipmentExecutionState(latestShipment);
     const fulfillmentStatus = latestShipment
@@ -114,7 +117,7 @@ export class OrdersService {
             nickname: order.marketplaceAccount.nickname ?? null,
           }
         : null,
-      items: (order.items ?? []).map((item: any) => ({
+      items: items.map((item: any, index: number) => ({
         id: item.id,
         quantity: item.quantity,
         salePriceCents: item.salePriceCents,
@@ -124,6 +127,7 @@ export class OrdersService {
               id: item.inventoryItem.id,
               sku: item.inventoryItem.sku,
               title: item.inventoryItem.title ?? null,
+              costBasisCents: item.inventoryItem.costBasisCents ?? 0,
             }
           : null,
         listing: item.listing
@@ -133,8 +137,10 @@ export class OrdersService {
               listingUrl: item.listing.listingUrl ?? null,
             }
           : null,
+        financials: financials.items[index],
       })),
       shipments,
+      financials: financials.summary,
       fulfillment: {
         provider: shippingAvailability.provider,
         providerConfigured: shippingAvailability.providerConfigured,
@@ -146,6 +152,79 @@ export class OrdersService {
         latestShipmentState,
       },
     };
+  }
+
+  private calculateFinancials(order: any, items: any[]) {
+    const itemFinancials = items.map((item) => {
+      const revenueCents = item.salePriceCents * item.quantity;
+      const costBasisCents = (item.inventoryItem?.costBasisCents ?? 0) * item.quantity;
+
+      return {
+        revenueCents,
+        costBasisCents,
+      };
+    });
+    const revenueCents = itemFinancials.reduce((sum, item) => sum + item.revenueCents, 0);
+    const feeAllocations = this.allocateByRevenue(itemFinancials, order.feeCents ?? 0, revenueCents);
+    const shippingAllocations = this.allocateByRevenue(itemFinancials, order.shippingCents ?? 0, revenueCents);
+    const itemsWithProfit = itemFinancials.map((item, index) => {
+      const feeCents = feeAllocations[index] ?? 0;
+      const shippingCostCents = shippingAllocations[index] ?? 0;
+      const grossProfitCents = item.revenueCents - feeCents - shippingCostCents - item.costBasisCents;
+
+      return {
+        revenueCents: item.revenueCents,
+        feeCents,
+        shippingCostCents,
+        costBasisCents: item.costBasisCents,
+        grossProfitCents,
+        roiPercent:
+          item.costBasisCents > 0 ? Number(((grossProfitCents / item.costBasisCents) * 100).toFixed(1)) : null,
+      };
+    });
+    const costBasisCents = itemsWithProfit.reduce((sum, item) => sum + item.costBasisCents, 0);
+    const grossProfitCents =
+      revenueCents - (order.feeCents ?? 0) - (order.shippingCents ?? 0) - costBasisCents;
+
+    return {
+      items: itemsWithProfit,
+      summary: {
+        revenueCents,
+        feeCents: order.feeCents ?? 0,
+        shippingCostCents: order.shippingCents ?? 0,
+        taxCents: order.taxCents ?? 0,
+        costBasisCents,
+        grossProfitCents,
+        roiPercent:
+          costBasisCents > 0 ? Number(((grossProfitCents / costBasisCents) * 100).toFixed(1)) : null,
+      },
+    };
+  }
+
+  private allocateByRevenue(
+    items: Array<{ revenueCents: number }>,
+    amountCents: number,
+    revenueCents: number,
+  ) {
+    if (items.length === 0) {
+      return [];
+    }
+
+    if (revenueCents <= 0 || amountCents === 0) {
+      return items.map(() => 0);
+    }
+
+    let allocated = 0;
+
+    return items.map((item, index) => {
+      if (index === items.length - 1) {
+        return amountCents - allocated;
+      }
+
+      const share = Math.round((amountCents * item.revenueCents) / revenueCents);
+      allocated += share;
+      return share;
+    });
   }
 
   private serializeShipment(shipment: any) {
