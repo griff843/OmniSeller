@@ -280,6 +280,62 @@ Exit criteria:
 9. Mobile intake, photo upgrades, and barcode workflows.
 10. Shipping scale, returns, notifications, and production operations.
 
+## LLM Execution Policy
+
+Use Codex as the primary implementation executor for repo changes, tests, builds, local smoke verification, commits, and integration.
+
+Use Claude primarily for product architecture, UX critique, workflow review, failure-mode analysis, prompt/listing-quality review, and closeout review.
+
+Recommended phase ownership:
+
+| Phase | Primary | Support |
+|---|---|---|
+| Phase 0: local baseline | Codex | Claude optional |
+| Phase 1: auth, nav, settings, user isolation | Codex | Claude review |
+| Phase 2: dashboard analytics and P&L | Codex | Claude metrics/UX review |
+| Phase 3: eBay import and sync | Codex | Claude sync-state review |
+| Phase 4: real eBay publish | Codex | Claude marketplace edge-case review |
+| Phase 5: price intelligence and listing quality | Shared | Claude upfront, Codex implementation |
+| Phase 6: bulk operations and CSV | Codex | Claude workflow review |
+| Phase 7: mobile/photo/barcode intake | Shared | Claude UX, Codex implementation |
+| Phase 8: shipping scale, returns, notifications | Codex | Claude operations review |
+| Phase 9: multi-marketplace expansion | Claude first | Codex execution |
+| Phase 10: production operations | Codex | Claude runbook review |
+
+## Parallel Execution Policy
+
+Parallel work is allowed when each lane has a clear ownership boundary and disjoint write scope.
+
+Do not run multiple agents against the same files, contracts, schema changes, auth boundary, or shared API response shape at the same time unless one executor is explicitly integrating and resolving conflicts.
+
+For each phase:
+
+1. Define contracts first.
+2. Split parallel lanes only after contracts are stable enough for independent work.
+3. Keep one main integrator responsible for final consistency.
+4. Run full verification after merging parallel work.
+5. Close the phase only after docs and proof are updated.
+
+Phase 1 parallel split:
+
+| Lane | Owner | Parallel? | Scope |
+|---|---|---:|---|
+| Auth and user context | Codex/main | Partly blocking | NextAuth providers, login page, route protection, user context propagation, replacing `dev-user` |
+| App shell and navigation | Parallel agent | Yes | Global layout, sidebar/top nav, active route states, page links |
+| Settings UI | Parallel agent | Yes after contracts | Settings page sections, connection cards, provider status display |
+| eBay token persistence | Parallel agent | Yes | OAuth callback, token storage, marketplace account health |
+| Tests, docs, verification | Parallel agent near end | Yes | Runbooks, focused tests, smoke checklist |
+
+Phase 1 items that should not be parallelized too early:
+
+- user identity model
+- backend user-context strategy
+- session guard pattern
+- API proxy auth pattern
+- shared settings status contract
+
+These are cross-cutting foundations and should be owned by one primary executor before parallel UI/backend lanes build on top of them.
+
 ## Definition Of Elite
 
 OmniSeller should be considered elite-level only when:
