@@ -14,6 +14,39 @@ type SpecificEntry = {
   value: string;
 };
 
+type EbayCategoryMetadata = {
+  marketplaceId: string;
+  categoryTreeId: string;
+  categoryTreeVersion: string | null;
+  categoryId: string;
+  categoryName: string;
+  breadcrumb: string;
+  selectedAt: string;
+  requiredAspects?: string[];
+};
+
+type EbayCategorySuggestion = {
+  categoryId: string;
+  categoryName: string;
+  categoryTreeNodeLevel: number | null;
+  relevancy: string | null;
+  breadcrumb: string;
+};
+
+type EbayCategorySuggestionResponse = {
+  marketplaceId: string;
+  categoryTreeId: string;
+  categoryTreeVersion: string | null;
+  suggestions: EbayCategorySuggestion[];
+};
+
+type EbayAspectResponse = {
+  aspects: Array<{
+    name: string | null;
+    required: boolean;
+  }>;
+};
+
 type SelectableField = 'title' | 'description' | 'category' | 'priceCents' | 'itemSpecifics';
 type DraftState = AiListingWorkspace['workflow']['draftState'];
 type SuggestionStatus = AiListingSuggestion['status'] | undefined;
@@ -72,6 +105,49 @@ function humanize(value: string): string {
 function toSpecificEntries(input?: Record<string, string> | null): SpecificEntry[] {
   const entries = Object.entries(input ?? {}).map(([key, value]) => ({ key, value }));
   return entries.length > 0 ? entries : [{ key: '', value: '' }];
+}
+
+function getEbayCategoryMetadata(metadata?: Record<string, unknown> | null): EbayCategoryMetadata | null {
+  const ebay = metadata?.ebay;
+
+  if (!ebay || typeof ebay !== 'object') {
+    return null;
+  }
+
+  const value = ebay as Partial<EbayCategoryMetadata>;
+  if (!value.categoryId || !value.categoryName) {
+    return null;
+  }
+
+  return {
+    marketplaceId: value.marketplaceId ?? 'EBAY_US',
+    categoryTreeId: value.categoryTreeId ?? '',
+    categoryTreeVersion: value.categoryTreeVersion ?? null,
+    categoryId: value.categoryId,
+    categoryName: value.categoryName,
+    breadcrumb: value.breadcrumb ?? value.categoryName,
+    selectedAt: value.selectedAt ?? new Date().toISOString(),
+    requiredAspects: value.requiredAspects ?? [],
+  };
+}
+
+function buildDraftMetadata(
+  currentMetadata: Record<string, unknown> | undefined,
+  selectedCategory: EbayCategoryMetadata | null,
+  draftCategory: string,
+) {
+  const nextMetadata = { ...(currentMetadata ?? {}) };
+
+  if (
+    selectedCategory &&
+    [selectedCategory.categoryName, selectedCategory.categoryId, selectedCategory.breadcrumb].includes(draftCategory)
+  ) {
+    nextMetadata.ebay = selectedCategory;
+    return nextMetadata;
+  }
+
+  delete nextMetadata.ebay;
+  return nextMetadata;
 }
 
 function toggleField(current: SelectableField[], field: SelectableField, checked: boolean): SelectableField[] {
@@ -149,6 +225,18 @@ export function AiListingPanel({
       : '',
   );
   const [specifics, setSpecifics] = useState<SpecificEntry[]>(toSpecificEntries(initialWorkspace.draft?.itemSpecifics));
+  const [categoryQuery, setCategoryQuery] = useState(initialWorkspace.draft?.category ?? '');
+  const [categorySuggestions, setCategorySuggestions] = useState<EbayCategorySuggestion[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<EbayCategoryMetadata | null>(
+    getEbayCategoryMetadata(initialWorkspace.draft?.metadata),
+  );
+  const [categoryResponseContext, setCategoryResponseContext] = useState<{
+    marketplaceId: string;
+    categoryTreeId: string;
+    categoryTreeVersion: string | null;
+  } | null>(null);
+  const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
+  const [isSearchingCategories, setIsSearchingCategories] = useState(false);
   const [selectedFields, setSelectedFields] = useState<SelectableField[]>(['title', 'description', 'priceCents']);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -167,6 +255,8 @@ export function AiListingPanel({
         : '',
     );
     setSpecifics(toSpecificEntries(workspace.draft?.itemSpecifics));
+    setCategoryQuery(workspace.draft?.category ?? '');
+    setSelectedCategory(getEbayCategoryMetadata(workspace.draft?.metadata));
   }, [workspace]);
 
   const refreshWorkspace = useCallback(async () => {
@@ -255,6 +345,96 @@ export function AiListingPanel({
     }
   }
 
+  async function searchCategories() {
+    const query = categoryQuery.trim() || draftCategory.trim();
+
+    if (query.length < 2) {
+      setTaxonomyError('Enter at least two characters to search eBay categories.');
+      return;
+    }
+
+    setIsSearchingCategories(true);
+    setTaxonomyError(null);
+
+    try {
+      const response = await fetch(`/api/ebay/taxonomy/categories?q=${encodeURIComponent(query)}`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to search eBay categories'));
+      }
+
+      const result = (await response.json()) as EbayCategorySuggestionResponse;
+      setCategoryResponseContext({
+        marketplaceId: result.marketplaceId,
+        categoryTreeId: result.categoryTreeId,
+        categoryTreeVersion: result.categoryTreeVersion,
+      });
+      setCategorySuggestions(result.suggestions.slice(0, 5));
+      if (result.suggestions.length === 0) {
+        setTaxonomyError('No eBay category matches found for that query.');
+      }
+    } catch (categoryError) {
+      setTaxonomyError(categoryError instanceof Error ? categoryError.message : 'Failed to search eBay categories');
+    } finally {
+      setIsSearchingCategories(false);
+    }
+  }
+
+  async function selectCategory(suggestion: EbayCategorySuggestion) {
+    const context = categoryResponseContext ?? {
+      marketplaceId: 'EBAY_US',
+      categoryTreeId: '',
+      categoryTreeVersion: null,
+    };
+    const nextCategory: EbayCategoryMetadata = {
+      marketplaceId: context.marketplaceId,
+      categoryTreeId: context.categoryTreeId,
+      categoryTreeVersion: context.categoryTreeVersion,
+      categoryId: suggestion.categoryId,
+      categoryName: suggestion.categoryName,
+      breadcrumb: suggestion.breadcrumb || suggestion.categoryName,
+      selectedAt: new Date().toISOString(),
+      requiredAspects: [],
+    };
+
+    setDraftCategory(suggestion.categoryName);
+    setCategoryQuery(suggestion.categoryName);
+    setSelectedCategory(nextCategory);
+    setTaxonomyError(null);
+
+    try {
+      const response = await fetch(`/api/ebay/taxonomy/aspects?categoryId=${encodeURIComponent(suggestion.categoryId)}`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to load eBay item specifics'));
+      }
+
+      const result = (await response.json()) as EbayAspectResponse;
+      const requiredAspects = result.aspects
+        .filter((aspect) => aspect.required && aspect.name)
+        .map((aspect) => aspect.name as string);
+      setSelectedCategory({ ...nextCategory, requiredAspects });
+    } catch {
+      setSelectedCategory(nextCategory);
+    }
+  }
+
+  function updateDraftCategory(value: string) {
+    setDraftCategory(value);
+    setCategoryQuery(value);
+
+    if (
+      selectedCategory &&
+      ![selectedCategory.categoryName, selectedCategory.categoryId, selectedCategory.breadcrumb].includes(value.trim())
+    ) {
+      setSelectedCategory(null);
+    }
+  }
+
   async function saveDraft() {
     setIsSaving(true);
     setError(null);
@@ -271,6 +451,7 @@ export function AiListingPanel({
             .map((entry) => [entry.key.trim(), entry.value.trim()] as const)
             .filter(([key, value]) => key.length > 0 && value.length > 0),
         ),
+        metadata: buildDraftMetadata(workspace.draft?.metadata, selectedCategory, draftCategory.trim()),
       };
 
       const response = await fetch(`/api/listings/${inventoryItemId}/draft`, {
@@ -562,10 +743,59 @@ export function AiListingPanel({
               <textarea className="min-h-40 w-full rounded-xl border border-slate-300 px-3 py-2" value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} />
             </label>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="block space-y-2 text-sm font-medium text-slate-700">
+              <div className="space-y-2 text-sm font-medium text-slate-700">
                 <span>Category</span>
-                <input className="w-full rounded-xl border border-slate-300 px-3 py-2" value={draftCategory} onChange={(event) => setDraftCategory(event.target.value)} />
-              </label>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  value={draftCategory}
+                  onChange={(event) => updateDraftCategory(event.target.value)}
+                />
+                <div className="flex gap-2">
+                  <input
+                    className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Search eBay taxonomy"
+                    value={categoryQuery}
+                    onChange={(event) => setCategoryQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void searchCategories();
+                      }
+                    }}
+                  />
+                  <Button variant="outline" onClick={searchCategories} disabled={isSearchingCategories}>
+                    {isSearchingCategories ? 'Searching...' : 'Search'}
+                  </Button>
+                </div>
+                {selectedCategory ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-normal text-emerald-800">
+                    <div className="font-semibold text-emerald-950">eBay category {selectedCategory.categoryId}</div>
+                    <div className="mt-1">{selectedCategory.breadcrumb}</div>
+                    {selectedCategory.requiredAspects && selectedCategory.requiredAspects.length > 0 ? (
+                      <div className="mt-1">
+                        Required specifics: {selectedCategory.requiredAspects.slice(0, 4).join(', ')}
+                        {selectedCategory.requiredAspects.length > 4 ? ` +${selectedCategory.requiredAspects.length - 4} more` : ''}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {taxonomyError ? <div className="text-xs font-normal text-rose-600">{taxonomyError}</div> : null}
+                {categorySuggestions.length > 0 ? (
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+                    {categorySuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.categoryId}
+                        type="button"
+                        className="w-full rounded-lg px-3 py-2 text-left text-xs font-normal text-slate-700 hover:bg-slate-50"
+                        onClick={() => void selectCategory(suggestion)}
+                      >
+                        <div className="font-semibold text-slate-950">{suggestion.categoryName}</div>
+                        <div className="mt-1">{suggestion.breadcrumb || suggestion.categoryId}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <label className="block space-y-2 text-sm font-medium text-slate-700">
                 <span>Price (cents)</span>
                 <input className="w-full rounded-xl border border-slate-300 px-3 py-2" inputMode="numeric" value={draftPrice} onChange={(event) => setDraftPrice(event.target.value.replace(/[^0-9]/g, ''))} />
