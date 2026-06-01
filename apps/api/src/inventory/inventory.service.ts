@@ -35,6 +35,7 @@ import { getDraftMissingFields, hasPublishableListingDraft } from '../listings/l
 
 const INVENTORY_CSV_IMPORT_MAX_BYTES = 1024 * 1024;
 const INVENTORY_CSV_IMPORT_MAX_ROWS = 1000;
+const INVENTORY_CSV_EXPORT_MAX_ROWS = 5000;
 
 type InventoryCsvMappedField =
   | 'sku'
@@ -94,10 +95,18 @@ export class InventoryService {
     const items = await prisma.inventoryItem.findMany({
       where: this.buildInventoryWhere(query, ownerId),
       orderBy: this.buildListSort(query.sort),
+      take: INVENTORY_CSV_EXPORT_MAX_ROWS + 1,
       include: {
         bin: true,
       },
     } as any);
+
+    if (items.length > INVENTORY_CSV_EXPORT_MAX_ROWS) {
+      throw new BadRequestException(
+        `CSV export is limited to ${INVENTORY_CSV_EXPORT_MAX_ROWS} items. Apply filters to narrow the result.`,
+      );
+    }
+
     const headers = [
       'sku',
       'title',
@@ -269,7 +278,7 @@ export class InventoryService {
     const ownerId = resolveUserId(userId);
     const itemIds = this.validateBulkItemIds(dto.itemIds);
     const action = this.validateBulkAction(dto.action);
-    const updateData = await this.buildBulkUpdateData(action, dto, ownerId);
+    this.validateBulkActionRequirements(action, dto);
     const foundItems: any[] = await prisma.inventoryItem.findMany({
       where: {
         id: { in: itemIds },
@@ -294,6 +303,11 @@ export class InventoryService {
       },
     } as any);
     const foundById = new Map(foundItems.map((item) => [item.id, item]));
+    const hasEligibleItem = itemIds.some((itemId) => {
+      const item = foundById.get(itemId);
+      return item && !this.getBulkActionIneligibleReason(action, item);
+    });
+    const updateData = hasEligibleItem ? await this.buildBulkUpdateData(action, dto, ownerId) : {};
     const results: Array<{
       itemId: string;
       status: 'updated' | 'not_found' | 'failed';
@@ -330,7 +344,7 @@ export class InventoryService {
       try {
         await prisma.inventoryItem.update({
           where: { id: itemId },
-          data: updateData,
+          data: this.buildBulkItemUpdateData(action, item, updateData),
         } as any);
         updated += 1;
         results.push({
@@ -558,7 +572,7 @@ export class InventoryService {
     }
 
     if (Buffer.byteLength(dto.csv, 'utf8') > INVENTORY_CSV_IMPORT_MAX_BYTES) {
-      throw new BadRequestException(`CSV import preview is limited to ${INVENTORY_CSV_IMPORT_MAX_BYTES} bytes`);
+      throw new BadRequestException(`CSV import is limited to ${INVENTORY_CSV_IMPORT_MAX_BYTES} bytes`);
     }
 
     const delimiter = dto.delimiter ?? ',';
@@ -577,7 +591,7 @@ export class InventoryService {
     }
 
     if (dataRows.length > INVENTORY_CSV_IMPORT_MAX_ROWS) {
-      throw new BadRequestException(`CSV import preview is limited to ${INVENTORY_CSV_IMPORT_MAX_ROWS} data rows`);
+      throw new BadRequestException(`CSV import is limited to ${INVENTORY_CSV_IMPORT_MAX_ROWS} data rows`);
     }
 
     const headerMappings = this.buildCsvHeaderMappings(headers);
@@ -1159,6 +1173,12 @@ export class InventoryService {
     return action as InventoryBulkUpdateAction;
   }
 
+  private validateBulkActionRequirements(action: InventoryBulkUpdateAction, dto: BulkUpdateInventoryItemsDto) {
+    if (action === 'ASSIGN_BIN' && !dto.binCode?.trim()) {
+      throw new BadRequestException('Bulk bin assignment requires a binCode');
+    }
+  }
+
   private async buildBulkUpdateData(
     action: InventoryBulkUpdateAction,
     dto: BulkUpdateInventoryItemsDto,
@@ -1174,14 +1194,25 @@ export class InventoryService {
       case 'ARCHIVE':
         return { inventoryStatus: 'ARCHIVED' };
       case 'ASSIGN_BIN': {
-        if (!dto.binCode?.trim()) {
-          throw new BadRequestException('Bulk bin assignment requires a binCode');
-        }
-
         const bin = await this.findOrCreateBin(dto.binCode, ownerId);
         return { binId: bin.id };
       }
     }
+  }
+
+  private buildBulkItemUpdateData(
+    action: InventoryBulkUpdateAction,
+    item: any,
+    updateData: Record<string, unknown>,
+  ): Record<string, unknown> {
+    if (action === 'ASSIGN_BIN' && item.inventoryStatus === 'DRAFT') {
+      return {
+        ...updateData,
+        inventoryStatus: 'IN_STOCK',
+      };
+    }
+
+    return updateData;
   }
 
   private getBulkActionIneligibleReason(action: InventoryBulkUpdateAction, item: any): string | null {

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nest
 import { ListingsService } from './listings.service';
 import { ListingAiService } from './listing-ai.service';
 import { ApplyAiSuggestionDto } from './dto/apply-ai-suggestion.dto';
-import { BulkListingWorkflowDto } from './dto/bulk-listing-workflow.dto';
+import { BulkListingAiWorkflowDto, BulkListingWorkflowDto } from './dto/bulk-listing-workflow.dto';
 import { UpdateListingDraftDto } from './dto/update-listing-draft.dto';
 import { USER_ID_HEADER } from '../common/user-context';
 
@@ -19,7 +19,7 @@ export class ListingsController {
   }
 
   @Post('bulk/ai/generate')
-  async bulkGenerateAi(@Body() dto: BulkListingWorkflowDto, @Headers(USER_ID_HEADER) userId?: string) {
+  async bulkGenerateAi(@Body() dto: BulkListingAiWorkflowDto, @Headers(USER_ID_HEADER) userId?: string) {
     return this.listingAiService.bulkGenerateSuggestions(dto.itemIds, userId);
   }
 

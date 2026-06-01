@@ -16,3 +16,12 @@ export class BulkListingWorkflowDto {
   @MaxLength(40)
   marketplace?: string;
 }
+
+export class BulkListingAiWorkflowDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(LISTING_BULK_AI_LIMIT)
+  @IsString({ each: true })
+  @MaxLength(128, { each: true })
+  itemIds!: string[];
+}

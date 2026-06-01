@@ -272,6 +272,7 @@ describe('InventoryService', () => {
           bin: { is: { code: 'BIN-A1' } },
         }),
         orderBy: [{ sku: 'asc' }],
+        take: 5001,
         include: { bin: true },
       }),
     );
@@ -280,6 +281,18 @@ describe('InventoryService', () => {
         'sku,title,description,category,condition,brand,model,upc,scanCode,costBasisCents,bin,inventoryStatus,listingReadiness,saleStatus,createdAt,updatedAt',
         'SKU-1,"Vintage, Camera","Has ""tested"" lens",Cameras,Used,Canon,AE-1,012345678905,SCAN99,1234,BIN-A1,IN_STOCK,NEEDS_PHOTOS,AVAILABLE,2026-03-11T15:00:00.000Z,2026-03-12T15:00:00.000Z',
       ].join('\r\n'),
+    );
+  });
+
+  it('rejects oversized CSV exports before building the response', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue(Array.from({ length: 5001 }, (_, index) => ({
+      sku: `SKU-${index}`,
+      createdAt: new Date('2026-03-11T15:00:00.000Z'),
+      updatedAt: new Date('2026-03-12T15:00:00.000Z'),
+    })));
+
+    await expect(service.exportCsv({}, 'dev-user')).rejects.toThrow(
+      'CSV export is limited to 5000 items. Apply filters to narrow the result.',
     );
   });
 
@@ -360,7 +373,7 @@ describe('InventoryService', () => {
       service.previewCsvImport({
         csv: ['sku,title', ...Array.from({ length: 1001 }, (_, index) => `SKU-${index},Item ${index}`)].join('\n'),
       }, 'dev-user'),
-    ).rejects.toThrow('CSV import preview is limited to 1000 data rows');
+    ).rejects.toThrow('CSV import is limited to 1000 data rows');
 
     expect(mockedPrisma.inventoryItem.findMany).not.toHaveBeenCalled();
     expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
@@ -610,6 +623,12 @@ describe('InventoryService', () => {
     expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'item_1' },
+        data: { binId: 'bin_1', inventoryStatus: 'IN_STOCK' },
+      }),
+    );
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item_2' },
         data: { binId: 'bin_1' },
       }),
     );
@@ -622,7 +641,6 @@ describe('InventoryService', () => {
       'Bulk bin assignment requires a binCode',
     );
 
-    mockedPrisma.bin.findFirst.mockResolvedValue({ id: 'bin_1', code: 'BIN-A1' });
     mockedPrisma.inventoryItem.findMany.mockResolvedValue([
       { id: 'archived_item', userId: 'dev-user', inventoryStatus: 'ARCHIVED', saleStatus: 'AVAILABLE', photos: [] },
     ]);
@@ -636,6 +654,8 @@ describe('InventoryService', () => {
       results: Array<{ itemId: string; status: string; message?: string }>;
     };
 
+    expect(mockedPrisma.bin.findFirst).not.toHaveBeenCalled();
+    expect(mockedPrisma.bin.create).not.toHaveBeenCalled();
     expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
     expect(result.counts).toEqual({ updated: 0, notFound: 0, failed: 1 });
     expect(result.results).toEqual([
