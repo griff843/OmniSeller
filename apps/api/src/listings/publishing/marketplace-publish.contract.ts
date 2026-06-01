@@ -6,8 +6,10 @@ export type PublishAvailability =
       marketplaceAccount: {
         id: string;
         kind: string;
+        siteId?: string | null;
         accessToken?: string | null;
         refreshToken?: string | null;
+        expiresAt?: Date | string | null;
       };
     }
   | {
@@ -22,8 +24,10 @@ export type PublishDraftInput = {
   marketplaceAccount: {
     id: string;
     kind: string;
+    siteId?: string | null;
     accessToken?: string | null;
     refreshToken?: string | null;
+    expiresAt?: Date | string | null;
   };
 };
 

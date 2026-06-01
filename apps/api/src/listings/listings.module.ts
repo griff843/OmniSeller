@@ -9,9 +9,11 @@ import { LISTING_AI_PROVIDER } from './ai/listing-ai.contract';
 import { OpenAiListingProvider } from './ai/openai-listing.provider';
 import { EbayPublishProvider } from './publishing/ebay-publish.provider';
 import { MARKETPLACE_PUBLISH_PROVIDER } from './publishing/marketplace-publish.contract';
+import { EbayModule } from '../ebay/ebay.module';
 
 @Module({
   imports: [
+    EbayModule,
     BullModule.registerQueue({
       name: 'publishListing',
     }),
