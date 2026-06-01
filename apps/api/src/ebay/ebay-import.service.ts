@@ -192,20 +192,25 @@ export class EbayImportService {
       throw new NotFoundException('Import conflict was not found.');
     }
 
-    if (resolution === 'accept-remote') {
-      await this.acceptRemoteListingConflict(conflict, ownerId);
-    }
-
     const resolvedAt = new Date();
     const status = resolution === 'dismiss' ? 'IGNORED' : 'RESOLVED';
 
-    const updated = await prisma.marketplaceImportConflict.update({
-      where: { id: conflict.id },
-      data: {
-        status,
-        resolvedAt,
-      },
-    } as any);
+    const updateConflict = (client: any) =>
+      client.marketplaceImportConflict.update({
+        where: { id: conflict.id },
+        data: {
+          status,
+          resolvedAt,
+        },
+      } as any);
+
+    const updated =
+      resolution === 'accept-remote'
+        ? await prisma.$transaction(async (tx: any) => {
+            await this.acceptRemoteListingConflict(conflict, ownerId, tx);
+            return updateConflict(tx);
+          })
+        : await updateConflict(prisma);
 
     return {
       id: updated?.id ?? conflict.id,
@@ -493,12 +498,12 @@ export class EbayImportService {
     } as any);
   }
 
-  private async acceptRemoteListingConflict(conflict: any, userId: string) {
+  private async acceptRemoteListingConflict(conflict: any, userId: string, client: any = prisma) {
     if (conflict.resource !== 'LISTINGS' || conflict.entityType !== 'listing' || !conflict.localEntityId) {
       throw new BadRequestException('Only listing import conflicts can accept remote values.');
     }
 
-    const listing: any = await prisma.listing.findFirst({
+    const listing: any = await client.listing.findFirst({
       where: {
         id: conflict.localEntityId,
         marketplaceAccountId: conflict.marketplaceAccountId,
@@ -518,7 +523,7 @@ export class EbayImportService {
       throw new BadRequestException('Import conflict does not contain remote draft values.');
     }
 
-    await prisma.listingDraft.upsert({
+    await client.listingDraft.upsert({
       where: {
         inventoryItemId: listing.inventoryItemId,
       },

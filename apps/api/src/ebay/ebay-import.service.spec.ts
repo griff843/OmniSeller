@@ -4,6 +4,7 @@ import { EbayImportService } from './ebay-import.service';
 
 jest.mock('@omniseller/db', () => ({
   prisma: {
+    $transaction: jest.fn(),
     marketplaceAccount: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -68,6 +69,7 @@ describe('EbayImportService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation((callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     prisma.marketplaceAccount.findFirst.mockResolvedValue(account);
     prisma.marketplaceAccount.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.findMany.mockResolvedValue([]);
@@ -499,6 +501,7 @@ describe('EbayImportService', () => {
 
     const result = await service.resolveConflict('conflict_1', 'accept-remote', 'user_1');
 
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.marketplaceImportConflict.findFirst).toHaveBeenCalledWith({
       where: {
         id: 'conflict_1',

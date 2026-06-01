@@ -33,6 +33,7 @@ export class EbayService {
         'https://api.ebay.com/oauth/api_scope/sell.marketing',
         'https://api.ebay.com/oauth/api_scope/sell.finances',
         'https://api.ebay.com/oauth/api_scope/sell.analytics',
+        'https://api.ebay.com/oauth/api_scope/buy.marketplace.insights',
       ].join(' '),
     );
     const base =
