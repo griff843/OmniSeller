@@ -74,7 +74,7 @@ export class EbayPublishProvider implements MarketplacePublishProvider {
       ? await this.updateOffer(accessToken, existingListing.offerId, offerPayload)
       : await this.createOffer(accessToken, offerPayload);
 
-    if (existingListing?.marketplaceItemId) {
+    if (existingListing?.marketplaceItemId && existingListing.offerId) {
       return {
         marketplaceItemId: existingListing.marketplaceItemId,
         offerId,
@@ -84,7 +84,7 @@ export class EbayPublishProvider implements MarketplacePublishProvider {
     }
 
     const published = await this.publishOffer(accessToken, offerId);
-    const marketplaceItemId = published.listingId ?? published.marketplaceItemId;
+    const marketplaceItemId = published.listingId ?? published.marketplaceItemId ?? existingListing?.marketplaceItemId;
 
     if (!marketplaceItemId) {
       throw new ServiceUnavailableException('eBay did not return a listing ID after publishing the offer.');
@@ -318,10 +318,19 @@ export class EbayPublishProvider implements MarketplacePublishProvider {
   }
 
   private buildListingUrl(siteId: string | null | undefined, listingId: string) {
-    if (siteId === 'EBAY-US' || siteId === 'EBAY_US' || !siteId) {
-      return `https://www.ebay.com/itm/${listingId}`;
-    }
+    const hostBySiteId: Record<string, string> = {
+      EBAY_AU: 'www.ebay.com.au',
+      EBAY_CA: 'www.ebay.ca',
+      EBAY_DE: 'www.ebay.de',
+      EBAY_ES: 'www.ebay.es',
+      EBAY_FR: 'www.ebay.fr',
+      EBAY_GB: 'www.ebay.co.uk',
+      EBAY_IT: 'www.ebay.it',
+      EBAY_US: 'www.ebay.com',
+    };
+    const normalizedSiteId = siteId?.replace('-', '_').toUpperCase() ?? 'EBAY_US';
+    const host = hostBySiteId[normalizedSiteId] ?? 'www.ebay.com';
 
-    return `https://www.ebay.com/itm/${listingId}`;
+    return `https://${host}/itm/${listingId}`;
   }
 }

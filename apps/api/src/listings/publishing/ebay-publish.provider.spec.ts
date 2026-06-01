@@ -174,6 +174,82 @@ describe('EbayPublishProvider', () => {
     expect(result.offerId).toBe('offer_1');
   });
 
+  it('publishes a newly-created offer when an imported listing has no stored offer id', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { offerId: 'offer_2' }))
+      .mockResolvedValueOnce(response(200, { listingId: '2222222222' }));
+
+    const result = await provider.publishDraft({
+      marketplace: 'ebay',
+      marketplaceAccount: account,
+      inventoryItem: {
+        id: 'item_1',
+        sku: 'SKU-123',
+        condition: 'Used',
+        photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/1.jpg', sort: 1 }],
+        listings: [
+          {
+            marketplace: 'ebay',
+            marketplaceItemId: '1111111111',
+            offerId: null,
+            listingUrl: 'https://www.ebay.com/itm/1111111111',
+          },
+        ],
+      },
+      draft: {
+        title: 'Imported listing draft',
+        description: 'Publishable description',
+        category: '31388',
+        priceCents: 18900,
+        itemSpecifics: {},
+      },
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://api.test.ebay.com/sell/inventory/v1/offer/offer_2/publish',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result).toEqual({
+      marketplaceItemId: '2222222222',
+      offerId: 'offer_2',
+      listingUrl: 'https://www.ebay.com/itm/2222222222',
+      status: 'active',
+    });
+  });
+
+  it('stores marketplace-specific listing URLs for supported eBay sites', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { offerId: 'offer_1' }))
+      .mockResolvedValueOnce(response(200, { listingId: '1234567890' }));
+
+    const result = await provider.publishDraft({
+      marketplace: 'ebay',
+      marketplaceAccount: {
+        ...account,
+        siteId: 'EBAY_GB',
+      },
+      inventoryItem: {
+        id: 'item_1',
+        sku: 'SKU-123',
+        condition: 'Used',
+        photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/1.jpg', sort: 1 }],
+        listings: [],
+      },
+      draft: {
+        title: 'Vintage camera',
+        description: 'Clean tested camera',
+        category: '31388',
+        priceCents: 19900,
+        itemSpecifics: {},
+      },
+    });
+
+    expect(result.listingUrl).toBe('https://www.ebay.co.uk/itm/1234567890');
+  });
+
   it('reports unavailable when required publish policy configuration is missing', () => {
     const missingConfig = {
       get: jest.fn((key: string) => (key === 'EBAY_MARKETPLACE_ID' ? 'EBAY_US' : undefined)),
@@ -190,8 +266,6 @@ describe('EbayPublishProvider', () => {
   });
 
   it('fails clearly when a nonnumeric draft category has no default category id', async () => {
-    fetchMock.mockResolvedValueOnce(response(204));
-
     await expect(
       provider.publishDraft({
         marketplace: 'ebay',
