@@ -400,6 +400,53 @@ describe('InventoryService', () => {
     expect(result.counts).toEqual({ updated: 2, notFound: 0, failed: 0 });
   });
 
+  it('does not bulk hold listed or reserved inventory', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      { id: 'available_item', userId: 'dev-user', saleStatus: 'AVAILABLE', photos: [] },
+      { id: 'sold_item', userId: 'dev-user', saleStatus: 'SOLD', photos: [] },
+      { id: 'listed_item', userId: 'dev-user', saleStatus: 'LISTED', photos: [] },
+      { id: 'reserved_item', userId: 'dev-user', saleStatus: 'RESERVED', photos: [] },
+    ]);
+    mockedPrisma.inventoryItem.update.mockResolvedValue({});
+
+    const result = (await service.bulkUpdate({
+      itemIds: ['available_item', 'sold_item', 'listed_item', 'reserved_item'],
+      action: 'MARK_HOLD',
+    }, 'dev-user')) as {
+      counts: { updated: number; notFound: number; failed: number };
+      results: Array<{ itemId: string; status: string; message?: string }>;
+    };
+
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledTimes(2);
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'available_item' },
+        data: { inventoryStatus: 'HOLD' },
+      }),
+    );
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'sold_item' },
+        data: { inventoryStatus: 'HOLD' },
+      }),
+    );
+    expect(result.counts).toEqual({ updated: 2, notFound: 0, failed: 2 });
+    expect(result.results).toEqual([
+      { itemId: 'available_item', status: 'updated' },
+      { itemId: 'sold_item', status: 'updated' },
+      {
+        itemId: 'listed_item',
+        status: 'failed',
+        message: 'Inventory item listed_item cannot be put on hold while sale state is listed',
+      },
+      {
+        itemId: 'reserved_item',
+        status: 'failed',
+        message: 'Inventory item reserved_item cannot be put on hold while sale state is reserved',
+      },
+    ]);
+  });
+
   it('does not bulk mark sold, shipped, reserved, or listed inventory available', async () => {
     mockedPrisma.inventoryItem.findMany.mockResolvedValue([
       { id: 'sold_item', userId: 'dev-user', saleStatus: 'SOLD', photos: [] },

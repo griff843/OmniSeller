@@ -912,6 +912,10 @@ export class InventoryService {
       return `Inventory item ${item.id} cannot be archived while sale state is ${String(saleStatus).toLowerCase()}`;
     }
 
+    if (action === 'MARK_HOLD' && (saleStatus === 'LISTED' || saleStatus === 'RESERVED')) {
+      return `Inventory item ${item.id} cannot be put on hold while sale state is ${String(saleStatus).toLowerCase()}`;
+    }
+
     if (action === 'MARK_READY_FOR_LISTING') {
       if (saleStatus !== 'AVAILABLE') {
         return `Inventory item ${item.id} cannot be marked ready for listing while sale state is ${String(saleStatus).toLowerCase()}`;
