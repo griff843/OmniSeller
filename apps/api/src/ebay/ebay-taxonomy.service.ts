@@ -44,8 +44,16 @@ type EbayAspectMetadataResponse = {
   }>;
 };
 
+type CategoryTreeCacheEntry = {
+  categoryTreeId: string;
+  categoryTreeVersion: string | null;
+  expiresAt: number;
+};
+
 @Injectable()
 export class EbayTaxonomyService {
+  private readonly categoryTreeCache = new Map<string, CategoryTreeCacheEntry>();
+
   constructor(
     private readonly configService: ConfigService,
     private readonly ebayTokenService: EbayTokenService,
@@ -130,6 +138,17 @@ export class EbayTaxonomyService {
   }
 
   private async getDefaultCategoryTree(accessToken: string, marketplaceId: string) {
+    const cacheKey = marketplaceId.trim().toUpperCase();
+    const cached = this.categoryTreeCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && cached.expiresAt > now) {
+      return {
+        categoryTreeId: cached.categoryTreeId,
+        categoryTreeVersion: cached.categoryTreeVersion,
+      };
+    }
+
     const data = await this.fetchJson<EbayCategoryTreeResponse>(
       accessToken,
       `/commerce/taxonomy/v1/get_default_category_tree_id?${new URLSearchParams({
@@ -141,10 +160,16 @@ export class EbayTaxonomyService {
       throw new BadRequestException(`eBay did not return a category tree for marketplace ${marketplaceId}.`);
     }
 
-    return {
+    const tree = {
       categoryTreeId: data.categoryTreeId,
       categoryTreeVersion: data.categoryTreeVersion ?? null,
     };
+    this.categoryTreeCache.set(cacheKey, {
+      ...tree,
+      expiresAt: now + this.getCategoryTreeCacheTtlMs(),
+    });
+
+    return tree;
   }
 
   private async findLatestEbayAccount(userId: string) {
@@ -187,6 +212,13 @@ export class EbayTaxonomyService {
   private getAspectValueLimit() {
     const value = Number(this.configService.get<string>('EBAY_TAXONOMY_ASPECT_VALUE_LIMIT'));
     return Number.isFinite(value) && value > 0 ? value : 25;
+  }
+
+  private getCategoryTreeCacheTtlMs() {
+    const value = Number(this.configService.get<string>('EBAY_TAXONOMY_TREE_CACHE_TTL_SECONDS'));
+    const seconds = Number.isFinite(value) && value > 0 ? value : 86400;
+
+    return seconds * 1000;
   }
 
   private getApiBase() {

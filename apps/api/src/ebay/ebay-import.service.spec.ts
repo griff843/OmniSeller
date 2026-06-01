@@ -13,8 +13,13 @@ jest.mock('@omniseller/db', () => ({
       upsert: jest.fn(),
     },
     marketplaceImportConflict: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
+      upsert: jest.fn(),
+    },
+    listingDraft: {
       upsert: jest.fn(),
     },
     listing: {
@@ -68,8 +73,11 @@ describe('EbayImportService', () => {
     prisma.marketplaceSyncState.findMany.mockResolvedValue([]);
     prisma.marketplaceSyncState.upsert.mockResolvedValue({});
     prisma.marketplaceImportConflict.findMany.mockResolvedValue([]);
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue(null);
+    prisma.marketplaceImportConflict.update.mockResolvedValue({});
     prisma.marketplaceImportConflict.updateMany.mockResolvedValue({ count: 0 });
     prisma.marketplaceImportConflict.upsert.mockResolvedValue({});
+    prisma.listingDraft.upsert.mockResolvedValue({});
   });
 
   it('rejects sync when no eBay account is connected', async () => {
@@ -370,6 +378,60 @@ describe('EbayImportService', () => {
     expect(prisma.marketplaceImportConflict.upsert).not.toHaveBeenCalled();
   });
 
+  it('does not reopen an ignored listing conflict when the same diff is imported again', async () => {
+    const fieldDiffs = [
+      { field: 'title', local: 'Local jacket title', remote: 'Marketplace jacket title' },
+      { field: 'priceCents', local: 5200, remote: 4200 },
+    ];
+    prisma.listing.findFirst.mockResolvedValue({
+      id: 'listing_1',
+      inventoryItemId: 'item_1',
+      inventoryItem: {
+        id: 'item_1',
+        saleStatus: 'LISTED',
+        publishStatus: 'PUBLISHED',
+        listingDraft: {
+          title: 'Local jacket title',
+          description: 'Local description',
+          category: 'Jackets',
+          priceCents: 5200,
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      },
+    });
+    prisma.listing.upsert.mockResolvedValue({ id: 'listing_1' });
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue({
+      id: 'conflict_1',
+      status: 'IGNORED',
+      fieldDiffs,
+    });
+
+    await service.importSnapshot(account as any, {
+      listings: [
+        {
+          marketplaceItemId: '123-ABC',
+          title: 'Marketplace jacket title',
+          description: 'Local description',
+          category: 'Jackets',
+          priceCents: 4200,
+          quantity: 1,
+          status: 'active',
+          itemSpecifics: { Brand: 'Levi' },
+        },
+      ],
+    });
+
+    expect(prisma.marketplaceImportConflict.upsert).not.toHaveBeenCalled();
+    expect(prisma.marketplaceImportConflict.update).toHaveBeenCalledWith({
+      where: { id: 'conflict_1' },
+      data: expect.objectContaining({
+        localEntityId: 'listing_1',
+        fieldDiffs,
+        lastSeenAt: expect.any(Date),
+      }),
+    });
+  });
+
   it('scopes existing order lookup and upsert to the importing marketplace account', async () => {
     prisma.order.findFirst.mockResolvedValue(null);
     prisma.order.upsert.mockResolvedValue({ id: 'order_1' });
@@ -400,6 +462,156 @@ describe('EbayImportService', () => {
         },
       }),
     );
+  });
+
+  it('accepts remote conflict values into the scoped local listing draft', async () => {
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue({
+      id: 'conflict_1',
+      marketplaceAccountId: 'acct_1',
+      resource: 'LISTINGS',
+      entityType: 'listing',
+      remoteEntityId: '123-ABC',
+      localEntityId: 'listing_1',
+      status: 'OPEN',
+      fieldDiffs: [
+        { field: 'title', local: 'Local title', remote: 'Remote title' },
+        { field: 'priceCents', local: 5200, remote: 4200 },
+      ],
+      remoteSnapshot: {
+        title: 'Remote title',
+        description: 'Remote description',
+        category: 'Jackets',
+        priceCents: 4200,
+        itemSpecifics: { Brand: 'Levi' },
+      },
+    });
+    prisma.listing.findFirst.mockResolvedValue({
+      id: 'listing_1',
+      inventoryItemId: 'item_1',
+      marketplaceAccountId: 'acct_1',
+      inventoryItem: { id: 'item_1', userId: 'user_1' },
+    });
+    prisma.marketplaceImportConflict.update.mockResolvedValue({
+      id: 'conflict_1',
+      status: 'RESOLVED',
+      resolvedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    const result = await service.resolveConflict('conflict_1', 'accept-remote', 'user_1');
+
+    expect(prisma.marketplaceImportConflict.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'conflict_1',
+        status: 'OPEN',
+        account: {
+          userId: 'user_1',
+          kind: 'ebay',
+        },
+      },
+    });
+    expect(prisma.listing.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'listing_1',
+        marketplaceAccountId: 'acct_1',
+      },
+      include: {
+        inventoryItem: true,
+      },
+    });
+    expect(prisma.listingDraft.upsert).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'item_1' },
+      create: {
+        inventoryItemId: 'item_1',
+        marketplace: 'ebay',
+        title: 'Remote title',
+        priceCents: 4200,
+      },
+      update: {
+        title: 'Remote title',
+        priceCents: 4200,
+      },
+    });
+    expect(prisma.marketplaceImportConflict.update).toHaveBeenCalledWith({
+      where: { id: 'conflict_1' },
+      data: expect.objectContaining({
+        status: 'RESOLVED',
+        resolvedAt: expect.any(Date),
+      }),
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'conflict_1',
+        status: 'RESOLVED',
+        resolution: 'accept-remote',
+      }),
+    );
+  });
+
+  it('keeps local conflict values without mutating the draft', async () => {
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue({
+      id: 'conflict_1',
+      marketplaceAccountId: 'acct_1',
+      resource: 'LISTINGS',
+      entityType: 'listing',
+      localEntityId: 'listing_1',
+      status: 'OPEN',
+      fieldDiffs: [],
+      remoteSnapshot: {},
+    });
+    prisma.marketplaceImportConflict.update.mockResolvedValue({
+      id: 'conflict_1',
+      status: 'RESOLVED',
+      resolvedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    await service.resolveConflict('conflict_1', 'keep-local', 'user_1');
+
+    expect(prisma.listingDraft.upsert).not.toHaveBeenCalled();
+    expect(prisma.marketplaceImportConflict.update).toHaveBeenCalledWith({
+      where: { id: 'conflict_1' },
+      data: expect.objectContaining({
+        status: 'RESOLVED',
+      }),
+    });
+  });
+
+  it('dismisses open conflicts as ignored', async () => {
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue({
+      id: 'conflict_1',
+      marketplaceAccountId: 'acct_1',
+      resource: 'LISTINGS',
+      entityType: 'listing',
+      localEntityId: 'listing_1',
+      status: 'OPEN',
+      fieldDiffs: [],
+      remoteSnapshot: {},
+    });
+    prisma.marketplaceImportConflict.update.mockResolvedValue({
+      id: 'conflict_1',
+      status: 'IGNORED',
+      resolvedAt: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    const result = await service.resolveConflict('conflict_1', 'dismiss', 'user_1');
+
+    expect(prisma.marketplaceImportConflict.update).toHaveBeenCalledWith({
+      where: { id: 'conflict_1' },
+      data: expect.objectContaining({
+        status: 'IGNORED',
+      }),
+    });
+    expect(result.status).toBe('IGNORED');
+  });
+
+  it('does not resolve conflicts outside the caller eBay account scope', async () => {
+    prisma.marketplaceImportConflict.findFirst.mockResolvedValue(null);
+
+    await expect(service.resolveConflict('conflict_1', 'keep-local', 'user_2')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+
+    expect(prisma.marketplaceImportConflict.update).not.toHaveBeenCalled();
+    expect(prisma.listingDraft.upsert).not.toHaveBeenCalled();
   });
 
   it('records sync status around provider-backed manual syncs', async () => {

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MarketplaceAccount, prisma } from '@omniseller/db';
-import { resolveUserId } from '../common/user-context';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 import { EbayImportProvider } from './ebay-import.provider';
 import {
   EbayImportResource,
@@ -28,6 +28,8 @@ type ImportFieldDiff = {
   local: unknown;
   remote: unknown;
 };
+
+export type EbayImportConflictResolution = 'keep-local' | 'accept-remote' | 'dismiss';
 
 @Injectable()
 export class EbayImportService {
@@ -165,6 +167,51 @@ export class EbayImportService {
     return {
       enabled,
       intervalMinutes: Number.isFinite(configuredInterval) && configuredInterval > 0 ? configuredInterval : 30,
+    };
+  }
+
+  async resolveConflict(conflictId: string, resolution: EbayImportConflictResolution | undefined, userId?: string) {
+    const ownerId = resolveUserId(userId);
+
+    if (!['keep-local', 'accept-remote', 'dismiss'].includes(resolution)) {
+      throw new BadRequestException('Conflict resolution must be keep-local, accept-remote, or dismiss.');
+    }
+
+    const conflict: any = await prisma.marketplaceImportConflict.findFirst({
+      where: {
+        id: conflictId,
+        status: 'OPEN',
+        account: {
+          userId: ownerId,
+          kind: 'ebay',
+        },
+      },
+    } as any);
+
+    if (!conflict) {
+      throw new NotFoundException('Import conflict was not found.');
+    }
+
+    if (resolution === 'accept-remote') {
+      await this.acceptRemoteListingConflict(conflict, ownerId);
+    }
+
+    const resolvedAt = new Date();
+    const status = resolution === 'dismiss' ? 'IGNORED' : 'RESOLVED';
+
+    const updated = await prisma.marketplaceImportConflict.update({
+      where: { id: conflict.id },
+      data: {
+        status,
+        resolvedAt,
+      },
+    } as any);
+
+    return {
+      id: updated?.id ?? conflict.id,
+      status: updated?.status ?? status,
+      resolution,
+      resolvedAt: updated?.resolvedAt ?? resolvedAt,
     };
   }
 
@@ -385,6 +432,33 @@ export class EbayImportService {
       return;
     }
 
+    const existingConflict: any = await prisma.marketplaceImportConflict.findFirst({
+      where: {
+        marketplaceAccountId,
+        resource: 'LISTINGS',
+        entityType: 'listing',
+        remoteEntityId: imported.marketplaceItemId,
+      },
+    } as any);
+
+    if (
+      existingConflict &&
+      existingConflict.status !== 'OPEN' &&
+      this.hasSameConflictDiffs(existingConflict.fieldDiffs, fieldDiffs)
+    ) {
+      await prisma.marketplaceImportConflict.update({
+        where: { id: existingConflict.id },
+        data: {
+          localEntityId: listingId,
+          fieldDiffs,
+          localSnapshot,
+          remoteSnapshot,
+          lastSeenAt: now,
+        },
+      } as any);
+      return;
+    }
+
     await prisma.marketplaceImportConflict.upsert({
       where: {
         marketplaceAccountId_resource_entityType_remoteEntityId: {
@@ -417,6 +491,76 @@ export class EbayImportService {
         resolvedAt: null,
       },
     } as any);
+  }
+
+  private async acceptRemoteListingConflict(conflict: any, userId: string) {
+    if (conflict.resource !== 'LISTINGS' || conflict.entityType !== 'listing' || !conflict.localEntityId) {
+      throw new BadRequestException('Only listing import conflicts can accept remote values.');
+    }
+
+    const listing: any = await prisma.listing.findFirst({
+      where: {
+        id: conflict.localEntityId,
+        marketplaceAccountId: conflict.marketplaceAccountId,
+      },
+      include: {
+        inventoryItem: true,
+      },
+    } as any);
+
+    if (!listing || !ownsRecord(listing.inventoryItem?.userId, userId)) {
+      throw new NotFoundException('Listing for import conflict was not found.');
+    }
+
+    const remotePatch = this.toRemoteDraftPatch(conflict.fieldDiffs, conflict.remoteSnapshot);
+
+    if (Object.keys(remotePatch).length === 0) {
+      throw new BadRequestException('Import conflict does not contain remote draft values.');
+    }
+
+    await prisma.listingDraft.upsert({
+      where: {
+        inventoryItemId: listing.inventoryItemId,
+      },
+      create: {
+        inventoryItemId: listing.inventoryItemId,
+        marketplace: 'ebay',
+        ...remotePatch,
+      },
+      update: remotePatch,
+    } as any);
+  }
+
+  private toRemoteDraftPatch(fieldDiffs: unknown, remoteSnapshot: unknown): Partial<ListingDraftSnapshot> {
+    const remote = remoteSnapshot && typeof remoteSnapshot === 'object' ? (remoteSnapshot as Record<string, unknown>) : {};
+    const fields = Array.isArray(fieldDiffs)
+      ? fieldDiffs
+          .map((diff) => (diff && typeof diff === 'object' && 'field' in diff ? diff.field : null))
+          .filter((field): field is keyof ListingDraftSnapshot =>
+            ['title', 'description', 'category', 'priceCents', 'itemSpecifics'].includes(String(field)),
+          )
+      : [];
+
+    return fields.reduce<Partial<ListingDraftSnapshot>>((patch, field) => {
+      switch (field) {
+        case 'title':
+        case 'description':
+        case 'category':
+          patch[field] = typeof remote[field] === 'string' ? remote[field] : null;
+          break;
+        case 'priceCents':
+          patch.priceCents = typeof remote.priceCents === 'number' ? remote.priceCents : null;
+          break;
+        case 'itemSpecifics':
+          patch.itemSpecifics = this.normalizeObject(remote.itemSpecifics);
+          break;
+      }
+      return patch;
+    }, {});
+  }
+
+  private hasSameConflictDiffs(left: unknown, right: ImportFieldDiff[]) {
+    return JSON.stringify(left ?? null) === JSON.stringify(right);
   }
 
   private toDraftSnapshot(draft: ListingDraftSnapshot): ListingDraftSnapshot {

@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Headers, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { EbayService } from './ebay.service';
 import { USER_ID_HEADER } from '../common/user-context';
-import { EbayImportService } from './ebay-import.service';
+import { EbayImportConflictResolution, EbayImportService } from './ebay-import.service';
 import { EbayImportResource } from './ebay-import.types';
+import { EbaySoldCompsQueryDto } from './dto/ebay-sold-comps-query.dto';
+import { EbayPriceIntelligenceService } from './ebay-price-intelligence.service';
 import { EbayTaxonomyService } from './ebay-taxonomy.service';
 
 @Controller('ebay')
@@ -11,6 +13,7 @@ export class EbayController {
   constructor(
     private readonly svc: EbayService,
     private readonly importService: EbayImportService,
+    private readonly priceIntelligenceService: EbayPriceIntelligenceService,
     private readonly taxonomyService: EbayTaxonomyService,
   ) {}
 
@@ -44,6 +47,15 @@ export class EbayController {
     return this.importService.sync(resource ?? 'ALL', userId);
   }
 
+  @Post('import-conflicts/:conflictId/resolve')
+  resolveImportConflict(
+    @Param('conflictId') conflictId: string,
+    @Body() body: { resolution?: EbayImportConflictResolution; action?: EbayImportConflictResolution } | undefined,
+    @Headers(USER_ID_HEADER) userId?: string,
+  ) {
+    return this.importService.resolveConflict(conflictId, body?.resolution ?? body?.action, userId);
+  }
+
   @Get('taxonomy/categories')
   suggestCategories(
     @Query('q') query: string | undefined,
@@ -60,5 +72,15 @@ export class EbayController {
     @Headers(USER_ID_HEADER) userId?: string,
   ) {
     return this.taxonomyService.getAspects(categoryId, userId, marketplaceId);
+  }
+
+  @Get('price-intelligence/status')
+  getPriceIntelligenceStatus(@Headers(USER_ID_HEADER) userId?: string) {
+    return this.priceIntelligenceService.getStatus(userId);
+  }
+
+  @Get('price-intelligence/sold-comps')
+  getSoldComps(@Query() query: EbaySoldCompsQueryDto, @Headers(USER_ID_HEADER) userId?: string) {
+    return this.priceIntelligenceService.getSoldComps(query, userId);
   }
 }

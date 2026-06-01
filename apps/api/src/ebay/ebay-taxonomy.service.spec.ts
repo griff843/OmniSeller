@@ -24,7 +24,7 @@ describe('EbayTaxonomyService', () => {
   const tokenService = {
     getValidAccessToken: jest.fn().mockResolvedValue('access-token'),
   };
-  const service = new EbayTaxonomyService(configService as any, tokenService as any);
+  let service: EbayTaxonomyService;
   const account = {
     id: 'acct_1',
     userId: 'user_1',
@@ -37,6 +37,7 @@ describe('EbayTaxonomyService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    service = new EbayTaxonomyService(configService as any, tokenService as any);
     prisma.marketplaceAccount.findFirst.mockResolvedValue(account);
   });
 
@@ -132,6 +133,28 @@ describe('EbayTaxonomyService', () => {
         values: ['Canon', 'Nikon'],
       },
     ]);
+  });
+
+  it('reuses the default category tree within the cache window', async () => {
+    mockedFetch
+      .mockResolvedValueOnce(response(200, { categoryTreeId: '0', categoryTreeVersion: '123' }))
+      .mockResolvedValueOnce(response(200, { categorySuggestions: [] }))
+      .mockResolvedValueOnce(response(200, { aspects: [] }));
+
+    await service.suggestCategories('camera', 'user_1');
+    await service.getAspects('31388', 'user_1');
+
+    expect(mockedFetch).toHaveBeenCalledTimes(3);
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      1,
+      'https://api.ebay.test/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_US',
+      expect.any(Object),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      3,
+      'https://api.ebay.test/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id=31388',
+      expect.any(Object),
+    );
   });
 
   it('rejects empty taxonomy requests and missing eBay connections', async () => {

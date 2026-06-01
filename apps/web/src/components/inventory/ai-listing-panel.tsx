@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { Button } from '@omniseller/ui';
 import { StatusBadge, type BadgeTone } from '@/components/shipping/status-badge';
 import {
@@ -40,11 +40,14 @@ type EbayCategorySuggestionResponse = {
   suggestions: EbayCategorySuggestion[];
 };
 
+type EbayAspect = {
+  name: string | null;
+  required: boolean;
+  values?: string[];
+};
+
 type EbayAspectResponse = {
-  aspects: Array<{
-    name: string | null;
-    required: boolean;
-  }>;
+  aspects: EbayAspect[];
 };
 
 type SelectableField = 'title' | 'description' | 'category' | 'priceCents' | 'itemSpecifics';
@@ -105,6 +108,24 @@ function humanize(value: string): string {
 function toSpecificEntries(input?: Record<string, string> | null): SpecificEntry[] {
   const entries = Object.entries(input ?? {}).map(([key, value]) => ({ key, value }));
   return entries.length > 0 ? entries : [{ key: '', value: '' }];
+}
+
+function toAspectMetadata(category: EbayCategoryMetadata | null): EbayAspect[] {
+  return (category?.requiredAspects ?? []).map((name) => ({ name, required: true, values: [] }));
+}
+
+function mergeRequiredSpecificRows(current: SpecificEntry[], requiredAspects: string[]): SpecificEntry[] {
+  const normalizedKeys = new Set(current.map((entry) => entry.key.trim().toLowerCase()).filter(Boolean));
+  const additions = requiredAspects
+    .filter((aspectName) => !normalizedKeys.has(aspectName.trim().toLowerCase()))
+    .map((aspectName) => ({ key: aspectName, value: '' }));
+
+  if (additions.length === 0) {
+    return current;
+  }
+
+  const currentRows = current.length === 1 && current[0].key.trim() === '' && current[0].value.trim() === '' ? [] : current;
+  return [...additions, ...currentRows];
 }
 
 function getEbayCategoryMetadata(metadata?: Record<string, unknown> | null): EbayCategoryMetadata | null {
@@ -230,6 +251,9 @@ export function AiListingPanel({
   const [selectedCategory, setSelectedCategory] = useState<EbayCategoryMetadata | null>(
     getEbayCategoryMetadata(initialWorkspace.draft?.metadata),
   );
+  const [aspectMetadata, setAspectMetadata] = useState<EbayAspect[]>(
+    toAspectMetadata(getEbayCategoryMetadata(initialWorkspace.draft?.metadata)),
+  );
   const [categoryResponseContext, setCategoryResponseContext] = useState<{
     marketplaceId: string;
     categoryTreeId: string;
@@ -237,6 +261,8 @@ export function AiListingPanel({
   } | null>(null);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
   const [isSearchingCategories, setIsSearchingCategories] = useState(false);
+  const [isLoadingAspects, setIsLoadingAspects] = useState(false);
+  const aspectRequestIdRef = useRef(0);
   const [selectedFields, setSelectedFields] = useState<SelectableField[]>(['title', 'description', 'priceCents']);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -256,7 +282,9 @@ export function AiListingPanel({
     );
     setSpecifics(toSpecificEntries(workspace.draft?.itemSpecifics));
     setCategoryQuery(workspace.draft?.category ?? '');
-    setSelectedCategory(getEbayCategoryMetadata(workspace.draft?.metadata));
+    const nextSelectedCategory = getEbayCategoryMetadata(workspace.draft?.metadata);
+    setSelectedCategory(nextSelectedCategory);
+    setAspectMetadata(toAspectMetadata(nextSelectedCategory));
   }, [workspace]);
 
   const refreshWorkspace = useCallback(async () => {
@@ -383,6 +411,8 @@ export function AiListingPanel({
   }
 
   async function selectCategory(suggestion: EbayCategorySuggestion) {
+    const requestId = aspectRequestIdRef.current + 1;
+    aspectRequestIdRef.current = requestId;
     const context = categoryResponseContext ?? {
       marketplaceId: 'EBAY_US',
       categoryTreeId: '',
@@ -401,8 +431,11 @@ export function AiListingPanel({
 
     setDraftCategory(suggestion.categoryName);
     setCategoryQuery(suggestion.categoryName);
-    setSelectedCategory(nextCategory);
+    setCategorySuggestions([]);
+    setSelectedCategory(null);
+    setAspectMetadata([]);
     setTaxonomyError(null);
+    setIsLoadingAspects(true);
 
     try {
       const response = await fetch(`/api/ebay/taxonomy/aspects?categoryId=${encodeURIComponent(suggestion.categoryId)}`, {
@@ -417,9 +450,26 @@ export function AiListingPanel({
       const requiredAspects = result.aspects
         .filter((aspect) => aspect.required && aspect.name)
         .map((aspect) => aspect.name as string);
+
+      if (aspectRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setSelectedCategory({ ...nextCategory, requiredAspects });
-    } catch {
-      setSelectedCategory(nextCategory);
+      setAspectMetadata(result.aspects);
+      setSpecifics((current) => mergeRequiredSpecificRows(current, requiredAspects));
+    } catch (aspectError) {
+      if (aspectRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setSelectedCategory(null);
+      setAspectMetadata([]);
+      setTaxonomyError(aspectError instanceof Error ? aspectError.message : 'Failed to load eBay item specifics');
+    } finally {
+      if (aspectRequestIdRef.current === requestId) {
+        setIsLoadingAspects(false);
+      }
     }
   }
 
@@ -431,7 +481,10 @@ export function AiListingPanel({
       selectedCategory &&
       ![selectedCategory.categoryName, selectedCategory.categoryId, selectedCategory.breadcrumb].includes(value.trim())
     ) {
+      aspectRequestIdRef.current += 1;
       setSelectedCategory(null);
+      setAspectMetadata([]);
+      setIsLoadingAspects(false);
     }
   }
 
@@ -779,6 +832,11 @@ export function AiListingPanel({
                     ) : null}
                   </div>
                 ) : null}
+                {isLoadingAspects ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-normal text-sky-800">
+                    Loading eBay item specifics for the selected category...
+                  </div>
+                ) : null}
                 {taxonomyError ? <div className="text-xs font-normal text-rose-600">{taxonomyError}</div> : null}
                 {categorySuggestions.length > 0 ? (
                   <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2">
@@ -803,55 +861,90 @@ export function AiListingPanel({
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-slate-700">Item specifics</div>
-                <Button variant="outline" onClick={() => setSpecifics((current) => [...current, { key: '', value: '' }])}>
-                  Add specific
-                </Button>
-              </div>
-              {specifics.map((entry, index) => (
-                <div key={`${entry.key}-${index}`} className="grid gap-3 md:grid-cols-[0.9fr,1.1fr,auto]">
-                  <input
-                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Key"
-                    value={entry.key}
-                    onChange={(event) =>
-                      setSpecifics((current) =>
-                        current.map((currentEntry, currentIndex) =>
-                          currentIndex === index ? { ...currentEntry, key: event.target.value } : currentEntry,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Value"
-                    value={entry.value}
-                    onChange={(event) =>
-                      setSpecifics((current) =>
-                        current.map((currentEntry, currentIndex) =>
-                          currentIndex === index ? { ...currentEntry, value: event.target.value } : currentEntry,
-                        ),
-                      )
-                    }
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      setSpecifics((current) =>
-                        current.length === 1 ? [{ key: '', value: '' }] : current.filter((_, currentIndex) => currentIndex !== index),
-                      )
-                    }
-                  >
-                    Remove
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-slate-700">Item specifics</div>
+                  {selectedCategory?.requiredAspects && selectedCategory.requiredAspects.length > 0 ? (
+                    <div className="mt-1 text-xs text-slate-500">
+                      {selectedCategory.requiredAspects.length} required by selected eBay category
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  {selectedCategory?.requiredAspects && selectedCategory.requiredAspects.length > 0 ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setSpecifics((current) => mergeRequiredSpecificRows(current, selectedCategory.requiredAspects ?? []))}
+                    >
+                      Add required
+                    </Button>
+                  ) : null}
+                  <Button variant="outline" onClick={() => setSpecifics((current) => [...current, { key: '', value: '' }])}>
+                    Add specific
                   </Button>
                 </div>
-              ))}
+              </div>
+              {specifics.map((entry, index) => {
+                const aspect = aspectMetadata.find((candidate) => candidate.name?.toLowerCase() === entry.key.trim().toLowerCase());
+                const isRequired = Boolean(
+                  selectedCategory?.requiredAspects?.some((aspectName) => aspectName.toLowerCase() === entry.key.trim().toLowerCase()),
+                );
+
+                return (
+                  <div key={`${entry.key}-${index}`} className="grid gap-3 md:grid-cols-[0.9fr,1.1fr,auto]">
+                    <label className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                        <span>Specific</span>
+                        {isRequired ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Required</span> : null}
+                      </div>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Key"
+                        value={entry.key}
+                        onChange={(event) =>
+                          setSpecifics((current) =>
+                            current.map((currentEntry, currentIndex) =>
+                              currentIndex === index ? { ...currentEntry, key: event.target.value } : currentEntry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <div className="text-xs font-medium text-slate-500">Value</div>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                        placeholder={aspect?.values && aspect.values.length > 0 ? aspect.values.slice(0, 3).join(', ') : 'Value'}
+                        value={entry.value}
+                        onChange={(event) =>
+                          setSpecifics((current) =>
+                            current.map((currentEntry, currentIndex) =>
+                              currentIndex === index ? { ...currentEntry, value: event.target.value } : currentEntry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <div className="flex items-end">
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          setSpecifics((current) =>
+                            current.length === 1 ? [{ key: '', value: '' }] : current.filter((_, currentIndex) => currentIndex !== index),
+                          )
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={saveDraft} disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save draft'}
+              <Button onClick={saveDraft} disabled={isSaving || isLoadingAspects}>
+                {isSaving ? 'Saving...' : isLoadingAspects ? 'Loading specifics...' : 'Save draft'}
               </Button>
             </div>
           </div>
