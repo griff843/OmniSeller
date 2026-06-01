@@ -50,6 +50,14 @@ export type DashboardSummary = {
       shipped: number;
       blocked: number;
     };
+    intake: {
+      recentDays: number;
+      recentCreated: number;
+      missingCostBasis: number;
+      unassignedBin: number;
+      staleDraftDays: number;
+      staleDraft: number;
+    };
   };
   listings: {
     total: number;

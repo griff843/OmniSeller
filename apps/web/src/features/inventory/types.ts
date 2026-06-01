@@ -129,6 +129,52 @@ export type InventoryBulkUpdateResponse = {
   }>;
 };
 
+export type InventoryCsvImportField =
+  | 'sku'
+  | 'title'
+  | 'description'
+  | 'category'
+  | 'condition'
+  | 'brand'
+  | 'model'
+  | 'upc'
+  | 'scanCode'
+  | 'costBasisCents'
+  | 'binCode';
+
+export type InventoryCsvImportPreviewRow = {
+  rowNumber: number;
+  normalized: Partial<Record<InventoryCsvImportField, string | number | null>>;
+  errors: string[];
+  warnings: string[];
+};
+
+export type InventoryCsvImportPreviewResponse = {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  headers: string[];
+  rows: InventoryCsvImportPreviewRow[];
+};
+
+export type InventoryCsvImportApplyResponse = {
+  requestedRows: number;
+  created: number;
+  failed: number;
+  skipped: number;
+  duplicateSku: number;
+  binsCreated: number;
+  results: Array<{
+    rowNumber: number;
+    status: 'created' | 'failed' | 'skipped';
+    itemId?: string;
+    sku?: string;
+    message?: string;
+    errors?: string[];
+    warnings?: string[];
+  }>;
+};
+
 export type PhotoUploadReservation = {
   id: string;
   inventoryItemId: string;

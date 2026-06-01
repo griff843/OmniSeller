@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { USER_ID_HEADER } from '../common/user-context';
+import { ApplyInventoryCsvImportDto } from './dto/apply-inventory-csv-import.dto';
 import { BulkUpdateInventoryItemsDto } from './dto/bulk-update-inventory-items.dto';
 import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
@@ -37,6 +38,11 @@ export class InventoryController {
   @Post('import/csv/preview')
   previewCsvImport(@Body() body: PreviewInventoryCsvImportDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
     return this.svc.previewCsvImport(body, userId);
+  }
+
+  @Post('import/csv/apply')
+  applyCsvImport(@Body() body: ApplyInventoryCsvImportDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.applyCsvImport(body, userId);
   }
 
   @Get(':id')

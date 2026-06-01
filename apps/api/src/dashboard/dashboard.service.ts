@@ -25,6 +25,8 @@ type ProfitInput = {
 const DASHBOARD_PREVIEW_LIMIT = 5;
 const DASHBOARD_WORK_QUEUE_LIMIT = 200;
 const DASHBOARD_ORDER_WINDOW_DAYS = 30;
+const DASHBOARD_RECENT_INTAKE_DAYS = 7;
+const DASHBOARD_STALE_DRAFT_DAYS = 14;
 
 export function calculateProfitSummary(orders: ProfitInput[]) {
   const totals = orders.reduce(
@@ -90,8 +92,27 @@ export class DashboardService {
   async getSummary(userId?: string): Promise<unknown> {
     const ownerId = resolveUserId(userId);
     const orderWindowStart = new Date(Date.now() - DASHBOARD_ORDER_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const recentIntakeStart = new Date(Date.now() - DASHBOARD_RECENT_INTAKE_DAYS * 24 * 60 * 60 * 1000);
+    const staleDraftBefore = new Date(Date.now() - DASHBOARD_STALE_DRAFT_DAYS * 24 * 60 * 60 * 1000);
 
-    const [items, inventoryTotal, inventoryValue, readinessCountsRaw, saleCountsRaw, publishCountsRaw, listings, listingTotal, activeListingTotal, activeListingValue, orders, orderTotal] = await Promise.all([
+    const [
+      items,
+      inventoryTotal,
+      inventoryValue,
+      readinessCountsRaw,
+      saleCountsRaw,
+      publishCountsRaw,
+      recentIntakeCount,
+      missingCostBasisCount,
+      unassignedBinCount,
+      staleDraftCount,
+      listings,
+      listingTotal,
+      activeListingTotal,
+      activeListingValue,
+      orders,
+      orderTotal,
+    ] = await Promise.all([
       prisma.inventoryItem.findMany({
         where: { userId: ownerId },
         select: {
@@ -131,6 +152,33 @@ export class DashboardService {
         where: { userId: ownerId },
         _count: { _all: true },
       }),
+      prisma.inventoryItem.count({
+        where: {
+          userId: ownerId,
+          createdAt: { gte: recentIntakeStart },
+        },
+      } as any),
+      prisma.inventoryItem.count({
+        where: {
+          userId: ownerId,
+          costBasisCents: { lte: 0 },
+        },
+      } as any),
+      prisma.inventoryItem.count({
+        where: {
+          userId: ownerId,
+          binId: null,
+          inventoryStatus: { not: 'ARCHIVED' },
+          saleStatus: { notIn: ['SOLD', 'SHIPPED'] },
+        },
+      } as any),
+      prisma.inventoryItem.count({
+        where: {
+          userId: ownerId,
+          inventoryStatus: 'DRAFT',
+          updatedAt: { lt: staleDraftBefore },
+        },
+      } as any),
       prisma.listing.findMany({
         where: {
           account: {
@@ -247,6 +295,14 @@ export class DashboardService {
             (publishCounts.find((bucket) => bucket.key === 'BLOCKED')?.count ?? 0) +
             (publishCounts.find((bucket) => bucket.key === 'FAILED')?.count ?? 0) +
             (publishCounts.find((bucket) => bucket.key === 'UNAVAILABLE')?.count ?? 0),
+        },
+        intake: {
+          recentDays: DASHBOARD_RECENT_INTAKE_DAYS,
+          recentCreated: recentIntakeCount,
+          missingCostBasis: missingCostBasisCount,
+          unassignedBin: unassignedBinCount,
+          staleDraftDays: DASHBOARD_STALE_DRAFT_DAYS,
+          staleDraft: staleDraftCount,
         },
       },
       listings: {

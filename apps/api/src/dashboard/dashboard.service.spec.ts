@@ -156,6 +156,16 @@ describe('DashboardService', () => {
     expect(prisma.inventoryItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: 'user_1' }, take: 200 }),
     );
+    expect(prisma.inventoryItem.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'user_1',
+          binId: null,
+          inventoryStatus: { not: 'ARCHIVED' },
+          saleStatus: { notIn: ['SOLD', 'SHIPPED'] },
+        },
+      }),
+    );
     expect(summary.inventory.total).toBe(2);
     expect(summary.inventory.workflow.blocked).toBe(1);
     expect(summary.listings.active).toBe(1);
@@ -168,6 +178,14 @@ describe('DashboardService', () => {
       }),
     );
     expect(summary.period.orderWindowDays).toBe(30);
+    expect(summary.inventory.intake).toEqual({
+      recentDays: 7,
+      recentCreated: 2,
+      missingCostBasis: 2,
+      unassignedBin: 2,
+      staleDraftDays: 14,
+      staleDraft: 2,
+    });
     expect(summary.workQueues.needsPhotos).toHaveLength(1);
     expect(summary.workQueues.publishBlocked[0].publishError).toContain('category');
     expect(summary.workQueues.shippingError).toHaveLength(1);

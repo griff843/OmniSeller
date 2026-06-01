@@ -10,6 +10,8 @@ import {
   type InventoryBin,
   type InventoryBulkAction,
   type InventoryBulkUpdateResponse,
+  type InventoryCsvImportApplyResponse,
+  type InventoryCsvImportPreviewResponse,
   type InventoryItemDetail,
   type InventoryListResponse,
   type InventoryStatus,
@@ -71,6 +73,11 @@ export function InventoryDashboard({
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<InventoryBulkAction>('MARK_HOLD');
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [csvImportText, setCsvImportText] = useState('');
+  const [csvDelimiter, setCsvDelimiter] = useState(',');
+  const [csvPreview, setCsvPreview] = useState<InventoryCsvImportPreviewResponse | null>(null);
+  const [csvPreviewing, setCsvPreviewing] = useState(false);
+  const [csvApplying, setCsvApplying] = useState(false);
   const [createBinCode, setCreateBinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -242,6 +249,94 @@ export function InventoryDashboard({
     }
   }
 
+  async function loadCsvFile(file: File | null) {
+    if (!file) {
+      return;
+    }
+
+    setCsvPreview(null);
+    setError(null);
+    setFeedback(null);
+    setCsvImportText(await file.text());
+  }
+
+  async function previewCsvImport() {
+    setCsvPreviewing(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      if (!csvImportText.trim()) {
+        throw new Error('Paste CSV content or choose a CSV file before previewing an import.');
+      }
+
+      const response = await fetch('/api/inventory/import/csv/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          csv: csvImportText,
+          delimiter: csvDelimiter,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to preview CSV import'));
+      }
+
+      const preview = (await response.json()) as InventoryCsvImportPreviewResponse;
+      setCsvPreview(preview);
+      setFeedback(`Previewed ${preview.totalRows} rows: ${preview.validRows} valid, ${preview.invalidRows} invalid.`);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : 'Failed to preview CSV import');
+    } finally {
+      setCsvPreviewing(false);
+    }
+  }
+
+  async function applyCsvImport() {
+    setCsvApplying(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      if (!csvPreview) {
+        throw new Error('Preview the CSV before applying the import.');
+      }
+
+      if (csvPreview.validRows === 0) {
+        throw new Error('There are no valid CSV rows to import.');
+      }
+
+      const response = await fetch('/api/inventory/import/csv/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          csv: csvImportText,
+          delimiter: csvDelimiter,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to apply CSV import'));
+      }
+
+      const result = (await response.json()) as InventoryCsvImportApplyResponse;
+      const firstIssue = result.results.find((entry) => entry.status !== 'created');
+
+      setFeedback(
+        `CSV import complete: ${result.created} created, ${result.skipped} skipped, ${result.failed} failed, ${result.binsCreated} bins created.${
+          firstIssue?.message ? ` ${firstIssue.message}` : ''
+        }`,
+      );
+      setCsvPreview(null);
+      await refreshInventory();
+    } catch (applyError) {
+      setError(applyError instanceof Error ? applyError.message : 'Failed to apply CSV import');
+    } finally {
+      setCsvApplying(false);
+    }
+  }
+
   async function refreshInventory() {
     setLoading(true);
 
@@ -282,6 +377,12 @@ export function InventoryDashboard({
 
   const isFiltered = Boolean(q || binCode || inventoryStatus || listingReadiness || saleStatus);
   const allVisibleSelected = items.length > 0 && selectedItemIds.length === items.length;
+  const csvPreviewProblemRows = csvPreview?.rows.filter((row) => row.errors.length > 0 || row.warnings.length > 0) ?? [];
+  const csvPreviewRowsToShow = csvPreview
+    ? csvPreviewProblemRows.length > 0
+      ? csvPreviewProblemRows.slice(0, 12)
+      : csvPreview.rows.slice(0, 12)
+    : [];
 
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-8">
@@ -354,6 +455,120 @@ export function InventoryDashboard({
           </div>
         </section>
 
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">CSV import</div>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Bulk intake from spreadsheet</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Supported headers include SKU, title, description, category, condition, brand, model, UPC, scanCode, costBasisCents, and bin.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={csvDelimiter}
+                onChange={(event) => {
+                  setCsvDelimiter(event.target.value);
+                  setCsvPreview(null);
+                }}
+                disabled={csvPreviewing || csvApplying}
+              >
+                <option value=",">Comma</option>
+                <option value=";">Semicolon</option>
+                <option value={'\t'}>Tab</option>
+                <option value="|">Pipe</option>
+              </select>
+              <input
+                type="file"
+                accept=".csv,text/csv,text/plain"
+                className="max-w-64 text-sm text-slate-600 file:mr-3 file:rounded-xl file:border-0 file:bg-slate-950 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+                onChange={(event) => void loadCsvFile(event.target.files?.[0] ?? null)}
+                disabled={csvPreviewing || csvApplying}
+              />
+            </div>
+          </div>
+          <textarea
+            className="mt-4 min-h-40 w-full rounded-2xl border border-slate-300 px-3 py-2 font-mono text-sm"
+            placeholder="sku,title,condition,costBasisCents,bin&#10;SKU-123,Vintage Camera,Used,$12.34,BIN-A1"
+            value={csvImportText}
+            onChange={(event) => {
+              setCsvImportText(event.target.value);
+              setCsvPreview(null);
+            }}
+            disabled={csvPreviewing || csvApplying}
+          />
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-slate-500">
+              {csvPreview
+                ? `${csvPreview.validRows} valid / ${csvPreview.invalidRows} invalid / ${csvPreview.totalRows} total rows`
+                : 'Preview validates rows before anything is created.'}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={previewCsvImport} disabled={csvPreviewing || csvApplying}>
+                {csvPreviewing ? 'Previewing...' : 'Preview import'}
+              </Button>
+              <Button onClick={applyCsvImport} disabled={csvApplying || !csvPreview || csvPreview.validRows === 0}>
+                {csvApplying ? 'Importing...' : 'Apply import'}
+              </Button>
+            </div>
+          </div>
+          {csvPreview ? (
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+              {csvPreviewProblemRows.length > 0 ? (
+                <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Showing {Math.min(csvPreviewProblemRows.length, 12)} of {csvPreviewProblemRows.length} row(s) with warnings or errors.
+                </div>
+              ) : null}
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Row</th>
+                    <th className="px-4 py-3">SKU</th>
+                    <th className="px-4 py-3">Title</th>
+                    <th className="px-4 py-3">Bin</th>
+                    <th className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {csvPreviewRowsToShow.map((row) => (
+                    <tr key={row.rowNumber} className="align-top">
+                      <td className="px-4 py-3 font-medium text-slate-950">{row.rowNumber}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.normalized.sku ?? 'Auto'}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.normalized.title ?? 'Untitled'}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.normalized.binCode ?? 'Unassigned'}</td>
+                      <td className="px-4 py-3">
+                        {row.errors.length > 0 ? (
+                          <div className="space-y-1 text-xs text-rose-700">
+                            {row.errors.map((rowError) => (
+                              <div key={rowError}>{rowError}</div>
+                            ))}
+                          </div>
+                        ) : row.warnings.length > 0 ? (
+                          <div className="space-y-1 text-xs text-amber-700">
+                            {row.warnings.map((warning) => (
+                              <div key={warning}>{warning}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <StatusBadge tone="success">Ready</StatusBadge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {csvPreviewProblemRows.length > 12 || (csvPreviewProblemRows.length === 0 && csvPreview.rows.length > 12) ? (
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  {csvPreviewProblemRows.length > 0
+                    ? `Showing first 12 problem rows of ${csvPreviewProblemRows.length}.`
+                    : `Showing first 12 rows of ${csvPreview.rows.length}.`}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+
         {feedback ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feedback}</div> : null}
         {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
         {loading ? <div className="text-sm text-slate-500">Refreshing inventory...</div> : null}
@@ -381,7 +596,64 @@ export function InventoryDashboard({
               </Button>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="divide-y divide-slate-200 md:hidden">
+            {items.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-slate-500">
+                {isFiltered
+                  ? 'No inventory items match the current filters.'
+                  : 'No inventory items yet. Create your first item from the intake form above.'}
+              </div>
+            ) : (
+              items.map((item) => (
+                <article key={item.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      aria-label={`Select ${item.sku}`}
+                      checked={selectedItemIds.includes(item.id)}
+                      onChange={(event) => toggleSelectedItem(item.id, event.target.checked)}
+                    />
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                      {item.primaryPhoto?.url ? (
+                        <img src={item.primaryPhoto.url} alt={item.sku} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center px-2 text-center text-xs text-slate-400">No image</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-950">{item.sku}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-slate-700">{item.title ?? 'Untitled inventory item'}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {item.bin?.code ?? 'Unassigned'} / {item.readyPhotoCount}/{item.photoCount} photos
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="mb-1 text-slate-500">Inventory</div>
+                      <StatusBadge tone={badgeTone(item.inventoryStatus)}>{humanize(item.inventoryStatus)}</StatusBadge>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-slate-500">Sale</div>
+                      <StatusBadge tone={badgeTone(item.saleStatus)}>{humanize(item.saleStatus)}</StatusBadge>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="mb-1 text-slate-500">Readiness</div>
+                      <StatusBadge tone={badgeTone(item.listingReadiness)}>{humanize(item.listingReadiness)}</StatusBadge>
+                      <div className="mt-2 text-xs text-slate-500">{item.workflow.canPublish ? 'Publish-ready draft' : item.workflow.readinessBlockers[0] ?? 'Review item details'}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <Link className="text-sm font-medium text-sky-700 underline" href={`/inventory/${item.id}`}>
+                      Open control panel
+                    </Link>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>

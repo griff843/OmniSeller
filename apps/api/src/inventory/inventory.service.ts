@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhotoAssetRole, PhotoUploadStatus, prisma } from '@omniseller/db';
+import { ApplyInventoryCsvImportDto } from './dto/apply-inventory-csv-import.dto';
 import {
   BulkUpdateInventoryItemsDto,
   INVENTORY_BULK_UPDATE_LIMIT,
@@ -53,6 +54,14 @@ type InventoryCsvPreviewRow = {
   normalized: Partial<Record<InventoryCsvMappedField, string | number | null>>;
   errors: string[];
   warnings: string[];
+};
+
+type InventoryCsvPreview = {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  headers: string[];
+  rows: InventoryCsvPreviewRow[];
 };
 
 @Injectable()
@@ -334,6 +343,197 @@ export class InventoryService {
 
   async previewCsvImport(dto: PreviewInventoryCsvImportDto, userId?: string): Promise<unknown> {
     resolveUserId(userId);
+
+    return this.buildCsvImportPreview(dto);
+  }
+
+  async applyCsvImport(dto: ApplyInventoryCsvImportDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const preview = this.buildCsvImportPreview(dto);
+    const requestedRows = preview.totalRows;
+    const results: Array<{
+      rowNumber: number;
+      status: 'created' | 'failed' | 'skipped';
+      itemId?: string;
+      sku?: string;
+      message?: string;
+      errors?: string[];
+      warnings?: string[];
+    }> = [];
+    const validRows = preview.rows.filter((row) => row.errors.length === 0);
+    const seenSkus = new Set<string>();
+    const duplicateSkus = new Set<string>();
+
+    for (const row of validRows) {
+      const sku = typeof row.normalized.sku === 'string' && row.normalized.sku.length > 0 ? row.normalized.sku : null;
+      if (!sku) {
+        continue;
+      }
+
+      if (seenSkus.has(sku)) {
+        duplicateSkus.add(sku);
+      }
+      seenSkus.add(sku);
+    }
+
+    const existingSkus = seenSkus.size > 0
+      ? await prisma.inventoryItem.findMany({
+          where: {
+            sku: { in: Array.from(seenSkus) },
+          },
+          select: {
+            sku: true,
+          },
+        } as any)
+      : [];
+    const existingSkuSet = new Set((existingSkus as Array<{ sku: string }>).map((item) => item.sku));
+    let created = 0;
+    let failed = 0;
+    let skipped = 0;
+    let binsCreated = 0;
+    const binCache = new Map<string, { id: string; code: string }>();
+
+    await this.ensureUser(ownerId);
+
+    for (const row of preview.rows) {
+      if (row.errors.length > 0) {
+        failed += 1;
+        results.push({
+          rowNumber: row.rowNumber,
+          status: 'failed',
+          message: 'Row failed CSV validation',
+          errors: row.errors,
+          warnings: row.warnings,
+        });
+        continue;
+      }
+
+      const normalized = row.normalized;
+      const manualSku = typeof normalized.sku === 'string' && normalized.sku.length > 0 ? normalized.sku : null;
+
+      if (manualSku && duplicateSkus.has(manualSku)) {
+        skipped += 1;
+        results.push({
+          rowNumber: row.rowNumber,
+          status: 'skipped',
+          sku: manualSku,
+          message: `SKU ${manualSku} appears more than once in the CSV`,
+          warnings: row.warnings,
+        });
+        continue;
+      }
+
+      if (manualSku && existingSkuSet.has(manualSku)) {
+        skipped += 1;
+        results.push({
+          rowNumber: row.rowNumber,
+          status: 'skipped',
+          sku: manualSku,
+          message: `SKU ${manualSku} already exists`,
+          warnings: row.warnings,
+        });
+        continue;
+      }
+
+      try {
+        const id = randomUUID();
+        const createdAt = new Date();
+        const sku = manualSku ?? buildGeneratedSku({ id, createdAt });
+        const binCode = typeof normalized.binCode === 'string' && normalized.binCode.length > 0 ? normalized.binCode : null;
+        let bin: { id: string; code: string } | null = null;
+
+        if (binCode) {
+          bin = binCache.get(binCode) ?? null;
+          if (!bin) {
+            const existingBin = await prisma.bin.findFirst({
+              where: {
+                userId: ownerId,
+                code: binCode,
+              },
+            } as any);
+
+            if (existingBin) {
+              bin = existingBin;
+            } else {
+              bin = await prisma.bin.create({
+                data: {
+                  userId: ownerId,
+                  code: binCode,
+                  label: binCode,
+                },
+              } as any);
+              binsCreated += 1;
+            }
+
+            binCache.set(binCode, bin);
+          }
+        }
+
+        const title = this.csvString(normalized.title);
+        const condition = this.csvString(normalized.condition);
+        const item = await prisma.inventoryItem.create({
+          data: {
+            id,
+            userId: ownerId,
+            sku,
+            skuManuallySet: Boolean(manualSku),
+            title,
+            description: this.csvString(normalized.description),
+            category: this.csvString(normalized.category),
+            condition,
+            brand: this.csvString(normalized.brand),
+            model: this.csvString(normalized.model),
+            upc: this.csvString(normalized.upc),
+            scanCode: this.csvString(normalized.scanCode),
+            costBasisCents: typeof normalized.costBasisCents === 'number' ? normalized.costBasisCents : 0,
+            binId: bin?.id ?? null,
+            inventoryStatus: (bin ? 'IN_STOCK' : 'DRAFT') as any,
+            listingReadiness: determineListingReadiness({
+              title,
+              condition,
+              readyPhotoCount: 0,
+              hasSuggestion: false,
+              hasDraft: false,
+              hasPublishableDraft: false,
+              draftMissingFields: [],
+              hasActiveListing: false,
+              saleStatus: 'AVAILABLE',
+            }) as any,
+          },
+        } as any);
+
+        created += 1;
+        results.push({
+          rowNumber: row.rowNumber,
+          status: 'created',
+          itemId: item.id,
+          sku,
+          warnings: row.warnings,
+        });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          rowNumber: row.rowNumber,
+          status: 'failed',
+          sku: manualSku ?? undefined,
+          message: error instanceof Error ? error.message : 'Failed to create inventory item',
+          warnings: row.warnings,
+        });
+      }
+    }
+
+    return {
+      requestedRows,
+      created,
+      failed,
+      skipped,
+      duplicateSku: duplicateSkus.size,
+      binsCreated,
+      results,
+    };
+  }
+
+  private buildCsvImportPreview(dto: PreviewInventoryCsvImportDto): InventoryCsvPreview {
 
     if (typeof dto.csv !== 'string' || dto.csv.trim().length === 0) {
       throw new BadRequestException('CSV content cannot be empty');
@@ -744,7 +944,6 @@ export class InventoryService {
         return 'scanCode';
       case 'costbasiscents':
       case 'costbasis':
-      case 'cost':
         return 'costBasisCents';
       case 'bincode':
       case 'bin':
@@ -845,6 +1044,10 @@ export class InventoryService {
 
     errors.push('costBasisCents must be a non-negative cent value or dollar amount');
     return undefined;
+  }
+
+  private csvString(value: string | number | null | undefined): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 
   private validateCsvPreviewRow(

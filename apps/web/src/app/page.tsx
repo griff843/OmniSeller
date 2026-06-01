@@ -193,6 +193,21 @@ function Dashboard({ summary }: { summary: DashboardSummary }) {
           <Metric label="Blocked" value={String(summary.inventory.workflow.blocked)} />
         </section>
 
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Metric
+            label="Recent intake"
+            value={String(summary.inventory.intake.recentCreated)}
+            detail={`Last ${summary.inventory.intake.recentDays} days`}
+          />
+          <Metric label="Missing cost" value={String(summary.inventory.intake.missingCostBasis)} detail="Needs profit data" />
+          <Metric label="No bin" value={String(summary.inventory.intake.unassignedBin)} detail="Needs location" />
+          <Metric
+            label="Stale drafts"
+            value={String(summary.inventory.intake.staleDraft)}
+            detail={`${summary.inventory.intake.staleDraftDays}+ days old`}
+          />
+        </section>
+
         <section className="grid gap-4 lg:grid-cols-2">
           <OrderQueue title="Recent sales" orders={summary.orders.recentSales} empty="No sales have been imported yet." />
           <OrderQueue title="Orders requiring shipping" orders={summary.orders.shippingQueue} empty="No orders need shipping work." />

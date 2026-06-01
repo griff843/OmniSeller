@@ -322,6 +322,140 @@ describe('InventoryService', () => {
     expect(mockedPrisma.user.upsert).not.toHaveBeenCalled();
   });
 
+  it('rejects malformed quoted CSV fields before database access', async () => {
+    await expect(service.previewCsvImport({ csv: 'sku,title\nSKU-1,"Unclosed title' }, 'dev-user')).rejects.toThrow(
+      'CSV contains an unterminated quoted field',
+    );
+    await expect(service.previewCsvImport({ csv: 'sku,title\nSKU-1,"Title"extra' }, 'dev-user')).rejects.toThrow(
+      'Unexpected character after closing quote',
+    );
+    await expect(service.previewCsvImport({ csv: 'sku,title\nSKU-1,Title "quoted"' }, 'dev-user')).rejects.toThrow(
+      'Unexpected quote',
+    );
+
+    expect(mockedPrisma.inventoryItem.findMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.bin.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.user.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not treat ambiguous cost CSV headers as cost basis cents', async () => {
+    const result = (await service.previewCsvImport({
+      csv: 'sku,title,cost\nSKU-123,Camera,50',
+    }, 'dev-user')) as {
+      rows: Array<{ normalized: Record<string, unknown>; warnings: string[] }>;
+    };
+
+    expect(result.rows[0].normalized).toEqual({
+      sku: 'SKU-123',
+      title: 'Camera',
+    });
+    expect(result.rows[0].warnings).toEqual(['Column "cost" is not recognized and will be ignored']);
+  });
+
+  it('applies valid CSV import rows and creates bins on demand', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([]);
+    mockedPrisma.bin.findFirst.mockResolvedValue(null);
+    mockedPrisma.bin.create.mockResolvedValue({ id: 'bin_1', code: 'BIN-A1', label: 'BIN-A1' });
+    mockedPrisma.inventoryItem.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({
+        ...data,
+        createdAt: new Date('2026-03-11T15:00:00.000Z'),
+        updatedAt: new Date('2026-03-11T15:00:00.000Z'),
+      }),
+    );
+
+    const result = (await service.applyCsvImport({
+      csv: [
+        'sku,title,description,condition,brand,model,upc,scanCode,costBasisCents,bin',
+        'sku-123,Vintage Camera,Tested body,Used,Canon,AE-1,012345678905,scan 99,$12.34,bin a1',
+        ',Untitled Lot,,New,,,,,500,',
+      ].join('\n'),
+    }, 'dev-user')) as {
+      requestedRows: number;
+      created: number;
+      failed: number;
+      skipped: number;
+      binsCreated: number;
+      results: Array<{ status: string; sku: string }>;
+    };
+
+    expect(mockedPrisma.user.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'dev-user' },
+      }),
+    );
+    expect(mockedPrisma.bin.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'dev-user',
+          code: 'BIN-A1',
+        }),
+      }),
+    );
+    expect(mockedPrisma.inventoryItem.create).toHaveBeenCalledTimes(2);
+    expect(mockedPrisma.inventoryItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'dev-user',
+          sku: 'SKU-123',
+          skuManuallySet: true,
+          title: 'Vintage Camera',
+          description: 'Tested body',
+          condition: 'Used',
+          brand: 'Canon',
+          model: 'AE-1',
+          upc: '012345678905',
+          scanCode: 'SCAN99',
+          costBasisCents: 1234,
+          binId: 'bin_1',
+          inventoryStatus: 'IN_STOCK',
+          listingReadiness: 'NEEDS_PHOTOS',
+        }),
+      }),
+    );
+    expect(result.requestedRows).toBe(2);
+    expect(result.created).toBe(2);
+    expect(result.failed).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.binsCreated).toBe(1);
+    expect(result.results[0]).toEqual(expect.objectContaining({ status: 'created', sku: 'SKU-123' }));
+    expect(result.results[1].sku).toMatch(/^INV-\d{8}-[A-Z0-9]{6}$/);
+  });
+
+  it('skips duplicate and existing CSV SKUs during apply', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([{ sku: 'EXISTING-1' }]);
+
+    const result = (await service.applyCsvImport({
+      csv: [
+        'sku,title',
+        'existing-1,Already exists',
+        'dup-1,First duplicate',
+        'dup-1,Second duplicate',
+        'ab,Too short',
+      ].join('\n'),
+    }, 'dev-user')) as {
+      created: number;
+      failed: number;
+      skipped: number;
+      duplicateSku: number;
+      results: Array<{ rowNumber: number; status: string; message?: string; errors?: string[] }>;
+    };
+
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(result.created).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.skipped).toBe(3);
+    expect(result.duplicateSku).toBe(1);
+    expect(result.results).toEqual([
+      expect.objectContaining({ rowNumber: 2, status: 'skipped', message: 'SKU EXISTING-1 already exists' }),
+      expect.objectContaining({ rowNumber: 3, status: 'skipped', message: 'SKU DUP-1 appears more than once in the CSV' }),
+      expect.objectContaining({ rowNumber: 4, status: 'skipped', message: 'SKU DUP-1 appears more than once in the CSV' }),
+      expect.objectContaining({ rowNumber: 5, status: 'failed', errors: ['SKU must be at least 4 characters after normalization'] }),
+    ]);
+  });
+
   it('rejects invalid bulk update batches before querying inventory', async () => {
     await expect(service.bulkUpdate({ itemIds: [], action: 'MARK_HOLD' }, 'dev-user')).rejects.toThrow(
       'Bulk update requires at least one inventory item id',
