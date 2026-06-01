@@ -227,6 +227,19 @@ export class InventoryService {
       },
       select: {
         id: true,
+        title: true,
+        condition: true,
+        saleStatus: true,
+        photos: {
+          where: {
+            uploadStatus: PhotoUploadStatus.READY,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+          take: 1,
+        },
       },
     } as any);
     const foundById = new Map(foundItems.map((item) => [item.id, item]));
@@ -248,6 +261,17 @@ export class InventoryService {
           itemId,
           status: 'not_found',
           message: `Inventory item ${itemId} not found`,
+        });
+        continue;
+      }
+
+      const ineligibleReason = this.getBulkActionIneligibleReason(action, item);
+      if (ineligibleReason) {
+        failed += 1;
+        results.push({
+          itemId,
+          status: 'failed',
+          message: ineligibleReason,
         });
         continue;
       }
@@ -538,6 +562,30 @@ export class InventoryService {
       case 'ARCHIVE':
         return { inventoryStatus: 'ARCHIVED' };
     }
+  }
+
+  private getBulkActionIneligibleReason(action: InventoryBulkUpdateAction, item: any): string | null {
+    const saleStatus = item.saleStatus ?? 'AVAILABLE';
+
+    if (action === 'MARK_AVAILABLE' && saleStatus !== 'AVAILABLE') {
+      return `Inventory item ${item.id} cannot be marked available while sale state is ${String(saleStatus).toLowerCase()}`;
+    }
+
+    if (action === 'ARCHIVE' && saleStatus !== 'AVAILABLE') {
+      return `Inventory item ${item.id} cannot be archived while sale state is ${String(saleStatus).toLowerCase()}`;
+    }
+
+    if (action === 'MARK_READY_FOR_LISTING') {
+      if (saleStatus !== 'AVAILABLE') {
+        return `Inventory item ${item.id} cannot be marked ready for listing while sale state is ${String(saleStatus).toLowerCase()}`;
+      }
+
+      if (!item.title?.trim() || !item.condition?.trim() || (item.photos?.length ?? 0) === 0) {
+        return `Inventory item ${item.id} needs title, condition, and at least one ready photo before listing work`;
+      }
+    }
+
+    return null;
   }
 
   private async requireInventoryItem(inventoryItemId: string, userId: string) {
