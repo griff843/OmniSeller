@@ -132,6 +132,73 @@ export class ListingsService {
     };
   }
 
+  async bulkEnqueuePublish(itemIds: string[], marketplace = 'ebay', userId?: string) {
+    const uniqueItemIds = this.validateBulkItemIds(itemIds);
+    const results: Array<{
+      itemId: string;
+      status: 'queued' | 'failed';
+      message?: string;
+    }> = [];
+    let queued = 0;
+    let failed = 0;
+
+    for (const itemId of uniqueItemIds) {
+      try {
+        const result = (await this.enqueuePublish(itemId, marketplace, userId)) as { message?: string };
+        queued += 1;
+        results.push({
+          itemId,
+          status: 'queued',
+          message: result.message,
+        });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          itemId,
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Failed to queue publish',
+        });
+      }
+    }
+
+    return {
+      action: 'BULK_PUBLISH',
+      marketplace,
+      requested: uniqueItemIds.length,
+      counts: {
+        queued,
+        failed,
+      },
+      results,
+    };
+  }
+
+  private validateBulkItemIds(itemIds: unknown): string[] {
+    if (!Array.isArray(itemIds)) {
+      throw new BadRequestException('itemIds must be an array');
+    }
+
+    const normalized = itemIds.map((itemId) => (typeof itemId === 'string' ? itemId.trim() : ''));
+
+    if (normalized.length === 0) {
+      throw new BadRequestException('Bulk workflow requires at least one inventory item id');
+    }
+
+    if (normalized.length > 25) {
+      throw new BadRequestException('Bulk workflow is limited to 25 inventory items');
+    }
+
+    if (normalized.some((itemId) => itemId.length === 0)) {
+      throw new BadRequestException('Inventory item ids cannot be blank');
+    }
+
+    if (new Set(normalized).size !== normalized.length) {
+      throw new BadRequestException('Bulk workflow itemIds must be unique');
+    }
+
+    return normalized;
+  }
+
   private async updatePublishState(
     inventoryItemId: string,
     data: {

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { AiListingSuggestionStatus, prisma } from '@omniseller/db';
 import { ApplyAiSuggestionDto } from './dto/apply-ai-suggestion.dto';
+import { LISTING_BULK_AI_LIMIT } from './dto/bulk-listing-workflow.dto';
 import { UpdateListingDraftDto } from './dto/update-listing-draft.dto';
 import {
   LISTING_AI_PROVIDER,
@@ -113,6 +114,73 @@ export class ListingAiService {
         ? new InternalServerErrorException(error.message)
         : new InternalServerErrorException('AI listing generation failed');
     }
+  }
+
+  async bulkGenerateSuggestions(itemIds: string[], userId?: string): Promise<unknown> {
+    const uniqueItemIds = this.validateBulkItemIds(itemIds);
+    const results: Array<{
+      itemId: string;
+      status: 'generated' | 'failed';
+      suggestionId?: string;
+      message?: string;
+    }> = [];
+    let generated = 0;
+    let failed = 0;
+
+    for (const itemId of uniqueItemIds) {
+      try {
+        const suggestion = (await this.generateSuggestion(itemId, userId)) as { id?: string };
+        generated += 1;
+        results.push({
+          itemId,
+          status: 'generated',
+          suggestionId: suggestion.id,
+        });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          itemId,
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Failed to generate AI listing suggestion',
+        });
+      }
+    }
+
+    return {
+      action: 'BULK_GENERATE_AI',
+      requested: uniqueItemIds.length,
+      counts: {
+        generated,
+        failed,
+      },
+      results,
+    };
+  }
+
+  private validateBulkItemIds(itemIds: unknown): string[] {
+    if (!Array.isArray(itemIds)) {
+      throw new BadRequestException('itemIds must be an array');
+    }
+
+    const normalized = itemIds.map((itemId) => (typeof itemId === 'string' ? itemId.trim() : ''));
+
+    if (normalized.length === 0) {
+      throw new BadRequestException('Bulk AI generation requires at least one inventory item id');
+    }
+
+    if (normalized.length > LISTING_BULK_AI_LIMIT) {
+      throw new BadRequestException(`Bulk AI generation is limited to ${LISTING_BULK_AI_LIMIT} inventory items`);
+    }
+
+    if (normalized.some((itemId) => itemId.length === 0)) {
+      throw new BadRequestException('Inventory item ids cannot be blank');
+    }
+
+    if (new Set(normalized).size !== normalized.length) {
+      throw new BadRequestException('Bulk AI generation itemIds must be unique');
+    }
+
+    return normalized;
   }
 
   async applySuggestion(inventoryItemId: string, dto: ApplyAiSuggestionDto, userId?: string): Promise<unknown> {

@@ -15,6 +15,8 @@ import {
   type InventoryItemDetail,
   type InventoryListResponse,
   type InventoryStatus,
+  type ListingBulkAiResponse,
+  type ListingBulkPublishResponse,
   type ListingReadiness,
   type SaleStatus,
 } from '@/features/inventory/types';
@@ -75,6 +77,7 @@ export function InventoryDashboard({
   const [bulkAction, setBulkAction] = useState<InventoryBulkAction>('MARK_HOLD');
   const [bulkBinCode, setBulkBinCode] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkWorkflowUpdating, setBulkWorkflowUpdating] = useState(false);
   const [csvImportText, setCsvImportText] = useState('');
   const [csvDelimiter, setCsvDelimiter] = useState(',');
   const [csvPreview, setCsvPreview] = useState<InventoryCsvImportPreviewResponse | null>(null);
@@ -253,6 +256,57 @@ export function InventoryDashboard({
       setError(bulkError instanceof Error ? bulkError.message : 'Failed to apply bulk action');
     } finally {
       setBulkUpdating(false);
+    }
+  }
+
+  async function runBulkWorkflow(action: 'publish' | 'ai') {
+    if (selectedItemIds.length === 0) {
+      setError('Select at least one inventory item before applying a bulk workflow.');
+      return;
+    }
+
+    setBulkWorkflowUpdating(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(action === 'publish' ? '/api/listings/bulk/publish' : '/api/listings/bulk/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemIds: selectedItemIds,
+          marketplace: 'ebay',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to apply bulk workflow'));
+      }
+
+      if (action === 'publish') {
+        const result = (await response.json()) as ListingBulkPublishResponse;
+        const failedMessage = result.results.find((entry) => entry.status === 'failed')?.message;
+        setFeedback(
+          `Bulk publish complete: ${result.counts.queued} queued, ${result.counts.failed} failed.${
+            failedMessage ? ` ${failedMessage}` : ''
+          }`,
+        );
+      } else {
+        const result = (await response.json()) as ListingBulkAiResponse;
+        const failedMessage = result.results.find((entry) => entry.status === 'failed')?.message;
+        setFeedback(
+          `Bulk AI complete: ${result.counts.generated} generated, ${result.counts.failed} failed.${
+            failedMessage ? ` ${failedMessage}` : ''
+          }`,
+        );
+      }
+
+      setSelectedItemIds([]);
+      await refreshInventory();
+    } catch (workflowError) {
+      setError(workflowError instanceof Error ? workflowError.message : 'Failed to apply bulk workflow');
+    } finally {
+      setBulkWorkflowUpdating(false);
     }
   }
 
@@ -621,6 +675,15 @@ export function InventoryDashboard({
               ) : null}
               <Button onClick={applyBulkAction} disabled={bulkUpdating || selectedItemIds.length === 0}>
                 {bulkUpdating ? 'Applying...' : 'Apply bulk action'}
+              </Button>
+              <Button
+                onClick={() => void runBulkWorkflow('ai')}
+                disabled={bulkWorkflowUpdating || selectedItemIds.length === 0 || selectedItemIds.length > 10}
+              >
+                Generate AI
+              </Button>
+              <Button onClick={() => void runBulkWorkflow('publish')} disabled={bulkWorkflowUpdating || selectedItemIds.length === 0}>
+                Queue publish
               </Button>
               <Button onClick={exportCsv} disabled={loading}>
                 Export CSV

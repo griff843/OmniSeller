@@ -161,6 +161,51 @@ describe('ListingsService', () => {
     expect(result.status).toBe('QUEUED');
   });
 
+  it('bulk queues publish requests with per-item results', async () => {
+    const enqueueSpy = jest
+      .spyOn(service, 'enqueuePublish')
+      .mockResolvedValueOnce({
+        status: 'QUEUED',
+        message: 'Publish was queued for eBay.',
+        publishState: {
+          status: 'QUEUED',
+          marketplace: 'ebay',
+          requestedAt: null,
+          queuedAt: null,
+          startedAt: null,
+          publishedAt: null,
+          failedAt: null,
+          error: null,
+          message: 'Publish was queued for eBay.',
+        },
+      })
+      .mockRejectedValueOnce(new BadRequestException('Complete draft eBay category ID before publish.'));
+
+    const result = (await service.bulkEnqueuePublish(['item_1', 'item_2'], 'ebay', 'dev-user')) as {
+      counts: { queued: number; failed: number };
+      results: Array<{ itemId: string; status: string; message?: string }>;
+    };
+
+    expect(enqueueSpy).toHaveBeenCalledWith('item_1', 'ebay', 'dev-user');
+    expect(enqueueSpy).toHaveBeenCalledWith('item_2', 'ebay', 'dev-user');
+    expect(result.counts).toEqual({ queued: 1, failed: 1 });
+    expect(result.results).toEqual([
+      { itemId: 'item_1', status: 'queued', message: 'Publish was queued for eBay.' },
+      { itemId: 'item_2', status: 'failed', message: 'Complete draft eBay category ID before publish.' },
+    ]);
+
+    enqueueSpy.mockRestore();
+  });
+
+  it('rejects invalid bulk publish batches before queueing', async () => {
+    await expect(service.bulkEnqueuePublish([], 'ebay', 'dev-user')).rejects.toThrow(
+      'Bulk workflow requires at least one inventory item id',
+    );
+    await expect(service.bulkEnqueuePublish(['item_1', 'item_1'], 'ebay', 'dev-user')).rejects.toThrow(
+      'Bulk workflow itemIds must be unique',
+    );
+  });
+
   it('prevents duplicate publish requests while a publish is already in flight', async () => {
     prisma.inventoryItem.findUnique.mockResolvedValue({
       id: 'item_1',

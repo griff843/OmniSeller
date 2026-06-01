@@ -120,6 +120,41 @@ describe('ListingAiService', () => {
     expect(result.id).toBe('suggestion_1');
   });
 
+  it('bulk generates AI suggestions with per-item results', async () => {
+    const generateSpy = jest
+      .spyOn(service, 'generateSuggestion')
+      .mockResolvedValueOnce({ id: 'suggestion_1' })
+      .mockRejectedValueOnce(new ServiceUnavailableException('AI listing generation is unavailable in this environment.'));
+
+    const result = (await service.bulkGenerateSuggestions(['item_1', 'item_2'], 'dev-user')) as {
+      counts: { generated: number; failed: number };
+      results: Array<{ itemId: string; status: string; suggestionId?: string; message?: string }>;
+    };
+
+    expect(generateSpy).toHaveBeenCalledWith('item_1', 'dev-user');
+    expect(generateSpy).toHaveBeenCalledWith('item_2', 'dev-user');
+    expect(result.counts).toEqual({ generated: 1, failed: 1 });
+    expect(result.results).toEqual([
+      { itemId: 'item_1', status: 'generated', suggestionId: 'suggestion_1' },
+      {
+        itemId: 'item_2',
+        status: 'failed',
+        message: 'AI listing generation is unavailable in this environment.',
+      },
+    ]);
+
+    generateSpy.mockRestore();
+  });
+
+  it('rejects invalid bulk AI batches before generating', async () => {
+    await expect(service.bulkGenerateSuggestions([], 'dev-user')).rejects.toThrow(
+      'Bulk AI generation requires at least one inventory item id',
+    );
+    await expect(service.bulkGenerateSuggestions(Array.from({ length: 11 }, (_, index) => `item_${index}`), 'dev-user')).rejects.toThrow(
+      'Bulk AI generation is limited to 10 inventory items',
+    );
+  });
+
   it('reports AI as unavailable without persisting a failed suggestion when no provider key is configured', async () => {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
       id: 'item_1',

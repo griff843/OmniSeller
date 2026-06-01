@@ -129,6 +129,36 @@ export type InventoryBulkUpdateResponse = {
   }>;
 };
 
+export type ListingBulkPublishResponse = {
+  action: 'BULK_PUBLISH';
+  marketplace: string;
+  requested: number;
+  counts: {
+    queued: number;
+    failed: number;
+  };
+  results: Array<{
+    itemId: string;
+    status: 'queued' | 'failed';
+    message?: string;
+  }>;
+};
+
+export type ListingBulkAiResponse = {
+  action: 'BULK_GENERATE_AI';
+  requested: number;
+  counts: {
+    generated: number;
+    failed: number;
+  };
+  results: Array<{
+    itemId: string;
+    status: 'generated' | 'failed';
+    suggestionId?: string;
+    message?: string;
+  }>;
+};
+
 export type InventoryCsvImportField =
   | 'sku'
   | 'title'
