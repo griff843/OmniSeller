@@ -50,6 +50,37 @@ type EbayAspectResponse = {
   aspects: EbayAspect[];
 };
 
+type PriceIntelligenceStatus = {
+  provider: 'ebay';
+  available: boolean;
+  reason: string | null;
+  accountId: string | null;
+};
+
+type EbaySoldComp = {
+  marketplaceItemId: string;
+  title: string | null;
+  itemUrl: string | null;
+  soldPriceCents: number;
+  currency: string | null;
+  condition: string | null;
+  soldAt: string | null;
+  imageUrl: string | null;
+};
+
+type EbaySoldCompsResult = {
+  provider: 'ebay';
+  marketplaceId: string;
+  query: {
+    q: string;
+    categoryId?: string | null;
+    marketplaceId?: string | null;
+    limit?: number | null;
+  };
+  comps: EbaySoldComp[];
+  requestedAt: string;
+};
+
 type SelectableField = 'title' | 'description' | 'category' | 'priceCents' | 'itemSpecifics';
 type DraftState = AiListingWorkspace['workflow']['draftState'];
 type SuggestionStatus = AiListingSuggestion['status'] | undefined;
@@ -179,6 +210,40 @@ function toggleField(current: SelectableField[], field: SelectableField, checked
   return current.filter((currentField) => currentField !== field);
 }
 
+function formatCents(value: number | null | undefined, currency = 'USD') {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(value / 100);
+}
+
+function soldCompStats(comps: EbaySoldComp[]) {
+  const prices = comps
+    .map((comp) => comp.soldPriceCents)
+    .filter((price) => Number.isFinite(price))
+    .sort((a, b) => a - b);
+
+  if (prices.length === 0) {
+    return { count: 0, median: null, average: null, low: null, high: null };
+  }
+
+  const middle = Math.floor(prices.length / 2);
+  const median = prices.length % 2 === 0 ? Math.round((prices[middle - 1] + prices[middle]) / 2) : prices[middle];
+  const average = Math.round(prices.reduce((sum, price) => sum + price, 0) / prices.length);
+
+  return {
+    count: prices.length,
+    median,
+    average,
+    low: prices[0],
+    high: prices[prices.length - 1],
+  };
+}
+
 async function readErrorMessage(response: Response, fallback: string) {
   const text = await response.text();
 
@@ -263,6 +328,14 @@ export function AiListingPanel({
   const [isSearchingCategories, setIsSearchingCategories] = useState(false);
   const [isLoadingAspects, setIsLoadingAspects] = useState(false);
   const aspectRequestIdRef = useRef(0);
+  const [priceStatus, setPriceStatus] = useState<PriceIntelligenceStatus | null>(null);
+  const [priceQuery, setPriceQuery] = useState(
+    initialWorkspace.draft?.title ?? initialWorkspace.sourceContext.title ?? '',
+  );
+  const [soldComps, setSoldComps] = useState<EbaySoldCompsResult | null>(null);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [isLoadingPriceStatus, setIsLoadingPriceStatus] = useState(false);
+  const [isLoadingSoldComps, setIsLoadingSoldComps] = useState(false);
   const [selectedFields, setSelectedFields] = useState<SelectableField[]>(['title', 'description', 'priceCents']);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -282,6 +355,7 @@ export function AiListingPanel({
     );
     setSpecifics(toSpecificEntries(workspace.draft?.itemSpecifics));
     setCategoryQuery(workspace.draft?.category ?? '');
+    setPriceQuery((current) => current || workspace.draft?.title || workspace.sourceContext.title || '');
     const nextSelectedCategory = getEbayCategoryMetadata(workspace.draft?.metadata);
     setSelectedCategory(nextSelectedCategory);
     setAspectMetadata(toAspectMetadata(nextSelectedCategory));
@@ -311,6 +385,46 @@ export function AiListingPanel({
     window.addEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
     return () => window.removeEventListener('inventory-item-refreshed', handleInventoryRefresh as EventListener);
   }, [inventoryItemId, refreshWorkspace]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPriceStatus() {
+      setIsLoadingPriceStatus(true);
+
+      try {
+        const response = await fetch('/api/ebay/price-intelligence/status', { cache: 'no-store' });
+
+        if (!response.ok) {
+          throw new Error(await readErrorMessage(response, 'Failed to load price intelligence status'));
+        }
+
+        const result = (await response.json()) as PriceIntelligenceStatus;
+        if (!cancelled) {
+          setPriceStatus(result);
+        }
+      } catch (statusError) {
+        if (!cancelled) {
+          setPriceStatus({
+            provider: 'ebay',
+            available: false,
+            reason: statusError instanceof Error ? statusError.message : 'Price intelligence status unavailable.',
+            accountId: null,
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPriceStatus(false);
+        }
+      }
+    }
+
+    void loadPriceStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function generateSuggestion() {
     if (!workspace.workflow.canGenerateAi) {
@@ -526,6 +640,48 @@ export function AiListingPanel({
     }
   }
 
+  async function findSoldComps() {
+    const query = priceQuery.trim() || draftTitle.trim() || workspace.sourceContext.title?.trim();
+
+    if (!query) {
+      setPriceError('Enter a search term for sold comps.');
+      return;
+    }
+
+    setIsLoadingSoldComps(true);
+    setPriceError(null);
+    setSoldComps(null);
+
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: '12',
+      });
+
+      if (selectedCategory?.categoryId) {
+        params.set('categoryId', selectedCategory.categoryId);
+      }
+
+      if (selectedCategory?.marketplaceId) {
+        params.set('marketplaceId', selectedCategory.marketplaceId);
+      }
+
+      const response = await fetch(`/api/ebay/price-intelligence/sold-comps?${params.toString()}`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to load sold comps'));
+      }
+
+      setSoldComps((await response.json()) as EbaySoldCompsResult);
+    } catch (compsError) {
+      setPriceError(compsError instanceof Error ? compsError.message : 'Failed to load sold comps');
+    } finally {
+      setIsLoadingSoldComps(false);
+    }
+  }
+
   const latestSuggestion = workspace.latestSuggestion;
   const workflow = workspace.workflow;
   const currentStateMessage = draftStateMessage(workspace);
@@ -534,6 +690,8 @@ export function AiListingPanel({
     : workflow.canGenerateAi
       ? latestSuggestion ? 'Regenerate AI listing' : 'Generate AI listing'
       : 'AI blocked';
+  const priceStats = soldCompStats(soldComps?.comps ?? []);
+  const priceCurrency = soldComps?.comps.find((comp) => comp.currency)?.currency ?? 'USD';
 
   return (
     <section className="space-y-6">
@@ -787,6 +945,114 @@ export function AiListingPanel({
           </div>
 
           <div className="mt-4 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-950">Price intelligence</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {isLoadingPriceStatus
+                      ? 'Checking eBay sold comps access...'
+                      : priceStatus?.available
+                        ? 'eBay sold comps ready'
+                        : priceStatus?.reason ?? 'eBay sold comps unavailable'}
+                  </div>
+                </div>
+                <StatusBadge tone={priceStatus?.available ? 'success' : 'warning'}>
+                  {priceStatus?.available ? 'Ready' : 'Unavailable'}
+                </StatusBadge>
+              </div>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <input
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  value={priceQuery}
+                  onChange={(event) => setPriceQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void findSoldComps();
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  onClick={findSoldComps}
+                  disabled={isLoadingSoldComps || !priceStatus?.available}
+                >
+                  {isLoadingSoldComps ? 'Finding...' : 'Find comps'}
+                </Button>
+              </div>
+
+              {priceError ? <div className="mt-3 text-sm text-rose-600">{priceError}</div> : null}
+
+              {soldComps ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Median</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-950">{formatCents(priceStats.median, priceCurrency)}</div>
+                    </div>
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Average</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-950">{formatCents(priceStats.average, priceCurrency)}</div>
+                    </div>
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Range</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-950">
+                        {formatCents(priceStats.low, priceCurrency)} - {formatCents(priceStats.high, priceCurrency)}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Samples</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-950">{priceStats.count}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => priceStats.median !== null && setDraftPrice(String(priceStats.median))}
+                      disabled={priceStats.median === null}
+                    >
+                      Apply median
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => priceStats.average !== null && setDraftPrice(String(priceStats.average))}
+                      disabled={priceStats.average === null}
+                    >
+                      Apply average
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {soldComps.comps.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-4 text-sm text-slate-500">
+                        No sold comps returned for this query.
+                      </div>
+                    ) : (
+                      soldComps.comps.slice(0, 5).map((comp) => (
+                        <div key={comp.marketplaceItemId} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-950">{comp.title ?? comp.marketplaceItemId}</div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {[comp.condition, comp.soldAt ? new Date(comp.soldAt).toLocaleDateString() : null].filter(Boolean).join(' | ')}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <div className="text-sm font-semibold text-slate-950">{formatCents(comp.soldPriceCents, comp.currency ?? priceCurrency)}</div>
+                            <Button variant="outline" onClick={() => setDraftPrice(String(comp.soldPriceCents))}>
+                              Apply
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <label className="block space-y-2 text-sm font-medium text-slate-700">
               <span>Title</span>
               <input className="w-full rounded-xl border border-slate-300 px-3 py-2" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />

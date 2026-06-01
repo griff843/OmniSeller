@@ -237,6 +237,84 @@ describe('InventoryService', () => {
     );
   });
 
+  it('rejects invalid bulk update batches before querying inventory', async () => {
+    await expect(service.bulkUpdate({ itemIds: [], action: 'MARK_HOLD' }, 'dev-user')).rejects.toThrow(
+      'Bulk update requires at least one inventory item id',
+    );
+
+    await expect(
+      service.bulkUpdate({
+        itemIds: Array.from({ length: 101 }, (_, index) => `item_${index}`),
+        action: 'MARK_HOLD',
+      }, 'dev-user'),
+    ).rejects.toThrow('Bulk update is limited to 100 inventory items');
+
+    expect(mockedPrisma.inventoryItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it('bulk updates only inventory items owned by the current user', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      { id: 'item_1', userId: 'dev-user' },
+    ]);
+    mockedPrisma.inventoryItem.update.mockResolvedValue({});
+
+    const result = (await service.bulkUpdate({
+      itemIds: ['item_1', 'item_2', 'missing_item'],
+      action: 'MARK_HOLD',
+    }, 'dev-user')) as {
+      counts: { updated: number; notFound: number; failed: number };
+      results: Array<{ itemId: string; status: string }>;
+    };
+
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledTimes(1);
+    expect(mockedPrisma.inventoryItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['item_1', 'item_2', 'missing_item'] },
+          userId: 'dev-user',
+        },
+      }),
+    );
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item_1' },
+        data: { inventoryStatus: 'HOLD' },
+      }),
+    );
+    expect(result.counts).toEqual({ updated: 1, notFound: 2, failed: 0 });
+    expect(result.results).toEqual([
+      { itemId: 'item_1', status: 'updated' },
+      { itemId: 'item_2', status: 'not_found', message: 'Inventory item item_2 not found' },
+      { itemId: 'missing_item', status: 'not_found', message: 'Inventory item missing_item not found' },
+    ]);
+  });
+
+  it('marks a bulk batch available and in stock', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      { id: 'item_1', userId: 'dev-user' },
+      { id: 'item_2', userId: 'dev-user' },
+    ]);
+    mockedPrisma.inventoryItem.update.mockResolvedValue({});
+
+    const result = (await service.bulkUpdate({
+      itemIds: ['item_1', 'item_2'],
+      action: 'MARK_AVAILABLE',
+    }, 'dev-user')) as {
+      action: string;
+      counts: { updated: number; notFound: number; failed: number };
+    };
+
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledTimes(2);
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item_1' },
+        data: { inventoryStatus: 'IN_STOCK', saleStatus: 'AVAILABLE' },
+      }),
+    );
+    expect(result.action).toBe('MARK_AVAILABLE');
+    expect(result.counts).toEqual({ updated: 2, notFound: 0, failed: 0 });
+  });
+
   it('soft deletes a primary photo and promotes the next one', async () => {
     mockedPrisma.photo.findFirst
       .mockResolvedValueOnce({

@@ -2,6 +2,12 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhotoAssetRole, PhotoUploadStatus, prisma } from '@omniseller/db';
+import {
+  BulkUpdateInventoryItemsDto,
+  INVENTORY_BULK_UPDATE_LIMIT,
+  InventoryBulkUpdateAction,
+  InventoryBulkUpdateActions,
+} from './dto/bulk-update-inventory-items.dto';
 import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { CreatePhotoUploadRequestDto } from './dto/create-photo-upload-request.dto';
@@ -209,6 +215,75 @@ export class InventoryService {
     return this.get(id, ownerId);
   }
 
+  async bulkUpdate(dto: BulkUpdateInventoryItemsDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const itemIds = this.validateBulkItemIds(dto.itemIds);
+    const action = this.validateBulkAction(dto.action);
+    const updateData = this.buildBulkUpdateData(action);
+    const foundItems: any[] = await prisma.inventoryItem.findMany({
+      where: {
+        id: { in: itemIds },
+        userId: ownerId,
+      },
+      select: {
+        id: true,
+      },
+    } as any);
+    const foundById = new Map(foundItems.map((item) => [item.id, item]));
+    const results: Array<{
+      itemId: string;
+      status: 'updated' | 'not_found' | 'failed';
+      message?: string;
+    }> = [];
+    let updated = 0;
+    let notFound = 0;
+    let failed = 0;
+
+    for (const itemId of itemIds) {
+      const item = foundById.get(itemId);
+
+      if (!item) {
+        notFound += 1;
+        results.push({
+          itemId,
+          status: 'not_found',
+          message: `Inventory item ${itemId} not found`,
+        });
+        continue;
+      }
+
+      try {
+        await prisma.inventoryItem.update({
+          where: { id: itemId },
+          data: updateData,
+        } as any);
+        updated += 1;
+        results.push({
+          itemId,
+          status: 'updated',
+        });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          itemId,
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Bulk update failed',
+        });
+      }
+    }
+
+    return {
+      action,
+      requested: itemIds.length,
+      counts: {
+        updated,
+        notFound,
+        failed,
+      },
+      results,
+    };
+  }
+
   async createPhotoUploadRequests(inventoryItemId: string, dto: CreatePhotoUploadRequestDto, userId?: string): Promise<unknown> {
     const ownerId = resolveUserId(userId);
     const item: any = await prisma.inventoryItem.findUnique({
@@ -413,6 +488,55 @@ export class InventoryService {
         return [{ title: 'asc' }, { createdAt: 'desc' }];
       default:
         return [{ createdAt: 'desc' }];
+    }
+  }
+
+  private validateBulkItemIds(itemIds: unknown): string[] {
+    if (!Array.isArray(itemIds)) {
+      throw new BadRequestException('itemIds must be an array');
+    }
+
+    const normalized = itemIds.map((itemId) => (typeof itemId === 'string' ? itemId.trim() : ''));
+
+    if (normalized.length === 0) {
+      throw new BadRequestException('Bulk update requires at least one inventory item id');
+    }
+
+    if (normalized.length > INVENTORY_BULK_UPDATE_LIMIT) {
+      throw new BadRequestException(`Bulk update is limited to ${INVENTORY_BULK_UPDATE_LIMIT} inventory items`);
+    }
+
+    if (normalized.some((itemId) => itemId.length === 0)) {
+      throw new BadRequestException('Inventory item ids cannot be blank');
+    }
+
+    const uniqueIds = new Set(normalized);
+
+    if (uniqueIds.size !== normalized.length) {
+      throw new BadRequestException('Bulk update itemIds must be unique');
+    }
+
+    return normalized;
+  }
+
+  private validateBulkAction(action: unknown): InventoryBulkUpdateAction {
+    if (typeof action !== 'string' || !InventoryBulkUpdateActions.includes(action as InventoryBulkUpdateAction)) {
+      throw new BadRequestException(`Unsupported inventory bulk action: ${String(action)}`);
+    }
+
+    return action as InventoryBulkUpdateAction;
+  }
+
+  private buildBulkUpdateData(action: InventoryBulkUpdateAction): Record<string, unknown> {
+    switch (action) {
+      case 'MARK_READY_FOR_LISTING':
+        return { listingReadiness: 'READY_FOR_LISTING' };
+      case 'MARK_HOLD':
+        return { inventoryStatus: 'HOLD' };
+      case 'MARK_AVAILABLE':
+        return { inventoryStatus: 'IN_STOCK', saleStatus: 'AVAILABLE' };
+      case 'ARCHIVE':
+        return { inventoryStatus: 'ARCHIVED' };
     }
   }
 

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { USER_ID_HEADER } from '../common/user-context';
+import { BulkUpdateInventoryItemsDto } from './dto/bulk-update-inventory-items.dto';
 import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { CreatePhotoUploadRequestDto } from './dto/create-photo-upload-request.dto';
@@ -25,6 +26,11 @@ export class InventoryController {
   @Post()
   create(@Body() body: CreateInventoryItemDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
     return this.svc.create(body, userId);
+  }
+
+  @Post('bulk')
+  bulkUpdate(@Body() body: BulkUpdateInventoryItemsDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.bulkUpdate(body, userId);
   }
 
   @Get(':id')
