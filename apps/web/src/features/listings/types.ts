@@ -26,6 +26,7 @@ export type ListingDraft = {
   category: string | null;
   priceCents: number | null;
   itemSpecifics: Record<string, string>;
+  metadata: Record<string, unknown>;
   sourceSuggestionId: string | null;
   createdAt: string;
   updatedAt: string;

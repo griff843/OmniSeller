@@ -21,4 +21,8 @@ export class UpdateListingDraftDto {
   @IsOptional()
   @IsObject()
   itemSpecifics?: Record<string, string>;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }

@@ -236,6 +236,7 @@ describe('ListingAiService', () => {
       category: 'Cameras',
       priceCents: 12900,
       itemSpecifics: { Brand: 'Canon' },
+      metadata: { ebay: { categoryId: '31388' } },
       sourceSuggestionId: null,
       createdAt: new Date('2026-03-11T16:00:00.000Z'),
       updatedAt: new Date('2026-03-11T16:00:00.000Z'),
@@ -252,12 +253,14 @@ describe('ListingAiService', () => {
     const result = (await service.updateDraft('item_1', {
       title: 'Draft title',
       itemSpecifics: { ' Brand ': ' Canon ', '': 'ignored' },
+      metadata: { ebay: { categoryId: '31388' } },
     }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         update: expect.objectContaining({
           itemSpecifics: { Brand: 'Canon' },
+          metadata: { ebay: { categoryId: '31388' } },
         }),
       }),
     );

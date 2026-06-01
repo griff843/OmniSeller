@@ -55,8 +55,15 @@ export class EbayTokenService {
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
         scope:
+          'https://api.ebay.com/oauth/api_scope ' +
+          'https://api.ebay.com/oauth/api_scope/sell.account ' +
           'https://api.ebay.com/oauth/api_scope/sell.fulfillment ' +
-          'https://api.ebay.com/oauth/api_scope/sell.inventory',
+          'https://api.ebay.com/oauth/api_scope/sell.inventory ' +
+          'https://api.ebay.com/oauth/api_scope/sell.item ' +
+          'https://api.ebay.com/oauth/api_scope/sell.offer ' +
+          'https://api.ebay.com/oauth/api_scope/sell.marketing ' +
+          'https://api.ebay.com/oauth/api_scope/sell.finances ' +
+          'https://api.ebay.com/oauth/api_scope/sell.analytics',
       }),
     });
 

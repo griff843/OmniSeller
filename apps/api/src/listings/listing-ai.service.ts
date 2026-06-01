@@ -196,6 +196,7 @@ export class ListingAiService {
         ...(dto.category !== undefined ? { category: dto.category } : {}),
         ...(dto.priceCents !== undefined ? { priceCents: dto.priceCents } : {}),
         ...(normalizedSpecifics !== undefined ? { itemSpecifics: normalizedSpecifics } : {}),
+        ...(dto.metadata !== undefined ? { metadata: dto.metadata as any } : {}),
       },
       create: {
         inventoryItemId,
@@ -205,6 +206,7 @@ export class ListingAiService {
         category: dto.category,
         priceCents: dto.priceCents,
         itemSpecifics: normalizedSpecifics,
+        metadata: dto.metadata as any,
       },
     });
 
@@ -355,6 +357,7 @@ export class ListingAiService {
       category: draft.category,
       priceCents: draft.priceCents,
       itemSpecifics: draft.itemSpecifics ?? {},
+      metadata: draft.metadata ?? {},
       sourceSuggestionId: draft.sourceSuggestionId,
       updatedAt: draft.updatedAt,
       createdAt: draft.createdAt,

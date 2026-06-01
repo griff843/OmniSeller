@@ -4,12 +4,14 @@ import { EbayService } from './ebay.service';
 import { USER_ID_HEADER } from '../common/user-context';
 import { EbayImportService } from './ebay-import.service';
 import { EbayImportResource } from './ebay-import.types';
+import { EbayTaxonomyService } from './ebay-taxonomy.service';
 
 @Controller('ebay')
 export class EbayController {
   constructor(
     private readonly svc: EbayService,
     private readonly importService: EbayImportService,
+    private readonly taxonomyService: EbayTaxonomyService,
   ) {}
 
   @Get('authorize')
@@ -40,5 +42,23 @@ export class EbayController {
     @Headers(USER_ID_HEADER) userId?: string,
   ) {
     return this.importService.sync(resource ?? 'ALL', userId);
+  }
+
+  @Get('taxonomy/categories')
+  suggestCategories(
+    @Query('q') query: string | undefined,
+    @Query('marketplaceId') marketplaceId: string | undefined,
+    @Headers(USER_ID_HEADER) userId?: string,
+  ) {
+    return this.taxonomyService.suggestCategories(query, userId, marketplaceId);
+  }
+
+  @Get('taxonomy/aspects')
+  getAspects(
+    @Query('categoryId') categoryId: string | undefined,
+    @Query('marketplaceId') marketplaceId: string | undefined,
+    @Headers(USER_ID_HEADER) userId?: string,
+  ) {
+    return this.taxonomyService.getAspects(categoryId, userId, marketplaceId);
   }
 }

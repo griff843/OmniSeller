@@ -250,6 +250,43 @@ describe('EbayPublishProvider', () => {
     expect(result.listingUrl).toBe('https://www.ebay.co.uk/itm/1234567890');
   });
 
+  it('uses resolved eBay category metadata before draft category text', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { offerId: 'offer_1' }))
+      .mockResolvedValueOnce(response(200, { listingId: '1234567890' }));
+
+    await provider.publishDraft({
+      marketplace: 'ebay',
+      marketplaceAccount: account,
+      inventoryItem: {
+        id: 'item_1',
+        sku: 'SKU-123',
+        condition: 'Used',
+        photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/1.jpg', sort: 1 }],
+        listings: [],
+      },
+      draft: {
+        title: 'Vintage camera',
+        description: 'Clean tested camera',
+        category: 'Cameras',
+        metadata: {
+          ebay: {
+            categoryId: '31388',
+          },
+        },
+        priceCents: 19900,
+        itemSpecifics: {},
+      },
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(
+      expect.objectContaining({
+        categoryId: '31388',
+      }),
+    );
+  });
+
   it('reports unavailable when required publish policy configuration is missing', () => {
     const missingConfig = {
       get: jest.fn((key: string) => (key === 'EBAY_MARKETPLACE_ID' ? 'EBAY_US' : undefined)),

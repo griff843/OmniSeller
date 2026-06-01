@@ -218,6 +218,12 @@ export class EbayPublishProvider implements MarketplacePublishProvider {
   }
 
   private getCategoryId(draft: any) {
+    const resolvedCategoryId = draft?.metadata?.ebay?.categoryId;
+
+    if (typeof resolvedCategoryId === 'string' && /^\d+$/.test(resolvedCategoryId.trim())) {
+      return resolvedCategoryId.trim();
+    }
+
     const category = typeof draft?.category === 'string' ? draft.category.trim() : '';
 
     if (/^\d+$/.test(category)) {
