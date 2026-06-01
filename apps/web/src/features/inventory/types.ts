@@ -112,6 +112,23 @@ export type InventoryListResponse = {
   };
 };
 
+export type InventoryBulkAction = 'MARK_READY_FOR_LISTING' | 'MARK_HOLD' | 'MARK_AVAILABLE' | 'ARCHIVE';
+
+export type InventoryBulkUpdateResponse = {
+  action: InventoryBulkAction;
+  requested: number;
+  counts: {
+    updated: number;
+    notFound: number;
+    failed: number;
+  };
+  results: Array<{
+    itemId: string;
+    status: 'updated' | 'not_found' | 'failed';
+    message?: string;
+  }>;
+};
+
 export type PhotoUploadReservation = {
   id: string;
   inventoryItemId: string;

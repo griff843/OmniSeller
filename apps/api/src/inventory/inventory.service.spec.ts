@@ -237,6 +237,91 @@ describe('InventoryService', () => {
     );
   });
 
+  it('previews quoted CSV rows without writing inventory records', async () => {
+    const result = (await service.previewCsvImport({
+      csv: [
+        'sku,title,description,brand,model,upc,scanCode,costBasisCents,bin',
+        'sku-123,"Vintage, Camera","Has ""tested"" lens",Canon,AE-1,012345678905," scan 99 ","$12.34",bin a1',
+        '',
+      ].join('\r\n'),
+    }, 'dev-user')) as {
+      totalRows: number;
+      validRows: number;
+      invalidRows: number;
+      headers: string[];
+      rows: Array<{ rowNumber: number; normalized: Record<string, unknown>; errors: string[]; warnings: string[] }>;
+    };
+
+    expect(result.totalRows).toBe(1);
+    expect(result.validRows).toBe(1);
+    expect(result.invalidRows).toBe(0);
+    expect(result.headers).toEqual(['sku', 'title', 'description', 'brand', 'model', 'upc', 'scanCode', 'costBasisCents', 'bin']);
+    expect(result.rows[0]).toEqual({
+      rowNumber: 2,
+      normalized: {
+        sku: 'SKU-123',
+        title: 'Vintage, Camera',
+        description: 'Has "tested" lens',
+        brand: 'Canon',
+        model: 'AE-1',
+        upc: '012345678905',
+        scanCode: 'SCAN99',
+        costBasisCents: 1234,
+        binCode: 'BIN-A1',
+      },
+      errors: [],
+      warnings: [],
+    });
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.bin.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.user.upsert).not.toHaveBeenCalled();
+  });
+
+  it('returns per-row CSV validation errors and warnings', async () => {
+    const result = (await service.previewCsvImport({
+      csv: [
+        'sku,title,costBasisCents,extra',
+        'ab,,12.345,ignored',
+        ',,,',
+        'SKU-123,Valid item,100,',
+      ].join('\n'),
+    }, 'dev-user')) as {
+      totalRows: number;
+      validRows: number;
+      invalidRows: number;
+      rows: Array<{ normalized: Record<string, unknown>; errors: string[]; warnings: string[] }>;
+    };
+
+    expect(result.totalRows).toBe(3);
+    expect(result.validRows).toBe(1);
+    expect(result.invalidRows).toBe(2);
+    expect(result.rows[0].normalized).toEqual({ sku: 'AB', title: null });
+    expect(result.rows[0].errors).toEqual([
+      'costBasisCents must be a non-negative cent value or dollar amount',
+      'SKU must be at least 4 characters after normalization',
+    ]);
+    expect(result.rows[0].warnings).toEqual(['Column "extra" is not recognized and will be ignored']);
+    expect(result.rows[1].errors).toEqual(['Row does not contain any inventory values']);
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty and oversized CSV previews before database access', async () => {
+    await expect(service.previewCsvImport({ csv: '   ' }, 'dev-user')).rejects.toThrow('CSV content cannot be empty');
+
+    await expect(
+      service.previewCsvImport({
+        csv: ['sku,title', ...Array.from({ length: 1001 }, (_, index) => `SKU-${index},Item ${index}`)].join('\n'),
+      }, 'dev-user'),
+    ).rejects.toThrow('CSV import preview is limited to 1000 data rows');
+
+    expect(mockedPrisma.inventoryItem.findMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.user.upsert).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid bulk update batches before querying inventory', async () => {
     await expect(service.bulkUpdate({ itemIds: [], action: 'MARK_HOLD' }, 'dev-user')).rejects.toThrow(
       'Bulk update requires at least one inventory item id',

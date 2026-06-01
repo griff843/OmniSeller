@@ -8,6 +8,8 @@ import { Button } from '@omniseller/ui';
 import { StatusBadge } from '@/components/shipping/status-badge';
 import {
   type InventoryBin,
+  type InventoryBulkAction,
+  type InventoryBulkUpdateResponse,
   type InventoryItemDetail,
   type InventoryListResponse,
   type InventoryStatus,
@@ -18,6 +20,12 @@ import {
 const inventoryStatuses: InventoryStatus[] = ['DRAFT', 'IN_STOCK', 'HOLD', 'ARCHIVED'];
 const listingReadinesses: ListingReadiness[] = ['NEEDS_INTAKE', 'NEEDS_PHOTOS', 'READY_FOR_AI', 'READY_FOR_LISTING', 'READY_TO_PUBLISH', 'LISTED'];
 const saleStatuses: SaleStatus[] = ['AVAILABLE', 'LISTED', 'RESERVED', 'SOLD', 'SHIPPED'];
+const bulkActions: Array<{ value: InventoryBulkAction; label: string }> = [
+  { value: 'MARK_READY_FOR_LISTING', label: 'Mark ready for listing' },
+  { value: 'MARK_HOLD', label: 'Put on hold' },
+  { value: 'MARK_AVAILABLE', label: 'Mark available' },
+  { value: 'ARCHIVE', label: 'Archive' },
+];
 
 function badgeTone(value: string) {
   if (value === 'READY_TO_PUBLISH' || value === 'LISTED' || value === 'IN_STOCK' || value === 'AVAILABLE') {
@@ -60,6 +68,9 @@ export function InventoryDashboard({
   const [listingReadiness, setListingReadiness] = useState('');
   const [saleStatus, setSaleStatus] = useState('');
   const [sort, setSort] = useState('created-desc');
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<InventoryBulkAction>('MARK_HOLD');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const [createBinCode, setCreateBinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -118,6 +129,7 @@ export function InventoryDashboard({
         const payload = (await inventoryResponse.json()) as InventoryListResponse;
         const nextBins = (await binsResponse.json()) as InventoryBin[];
         setItems(payload.items);
+        setSelectedItemIds((current) => current.filter((itemId) => payload.items.some((item) => item.id === itemId)));
         setBinOptions(nextBins);
         setError(null);
       } catch (requestError) {
@@ -171,7 +183,105 @@ export function InventoryDashboard({
     }
   }
 
+  function toggleSelectedItem(itemId: string, checked: boolean) {
+    setSelectedItemIds((current) => {
+      if (checked) {
+        return current.includes(itemId) ? current : [...current, itemId];
+      }
+
+      return current.filter((currentItemId) => currentItemId !== itemId);
+    });
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedItemIds(checked ? items.map((item) => item.id) : []);
+  }
+
+  async function applyBulkAction() {
+    if (selectedItemIds.length === 0) {
+      setError('Select at least one inventory item before applying a bulk action.');
+      return;
+    }
+
+    setBulkUpdating(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch('/api/inventory/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemIds: selectedItemIds,
+          action: bulkAction,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, 'Failed to apply bulk action'));
+      }
+
+      const result = (await response.json()) as InventoryBulkUpdateResponse;
+      const failedMessages = result.results
+        .filter((entry) => entry.status === 'failed')
+        .slice(0, 2)
+        .map((entry) => entry.message)
+        .filter(Boolean);
+
+      setFeedback(
+        `Bulk action complete: ${result.counts.updated} updated, ${result.counts.notFound} not found, ${result.counts.failed} failed.${
+          failedMessages.length > 0 ? ` ${failedMessages.join(' ')}` : ''
+        }`,
+      );
+      setSelectedItemIds([]);
+      await refreshInventory();
+    } catch (bulkError) {
+      setError(bulkError instanceof Error ? bulkError.message : 'Failed to apply bulk action');
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
+  async function refreshInventory() {
+    setLoading(true);
+
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set('q', q.trim());
+      if (binCode) params.set('binCode', binCode);
+      if (inventoryStatus) params.set('inventoryStatus', inventoryStatus);
+      if (listingReadiness) params.set('listingReadiness', listingReadiness);
+      if (saleStatus) params.set('saleStatus', saleStatus);
+      if (sort) params.set('sort', sort);
+
+      const [inventoryResponse, binsResponse] = await Promise.all([
+        fetch(`/api/inventory?${params.toString()}`, { cache: 'no-store' }),
+        fetch('/api/inventory/bins', { cache: 'no-store' }),
+      ]);
+
+      if (!inventoryResponse.ok) {
+        throw new Error(await readErrorMessage(inventoryResponse, 'Failed to load inventory'));
+      }
+
+      if (!binsResponse.ok) {
+        throw new Error(await readErrorMessage(binsResponse, 'Failed to load bins'));
+      }
+
+      const payload = (await inventoryResponse.json()) as InventoryListResponse;
+      const nextBins = (await binsResponse.json()) as InventoryBin[];
+      setItems(payload.items);
+      setSelectedItemIds((current) => current.filter((itemId) => payload.items.some((item) => item.id === itemId)));
+      setBinOptions(nextBins);
+      setError(null);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Failed to load inventory');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const isFiltered = Boolean(q || binCode || inventoryStatus || listingReadiness || saleStatus);
+  const allVisibleSelected = items.length > 0 && selectedItemIds.length === items.length;
 
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-8">
@@ -249,10 +359,40 @@ export function InventoryDashboard({
         {loading ? <div className="text-sm text-slate-500">Refreshing inventory...</div> : null}
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="text-sm text-slate-600">
+              {selectedItemIds.length > 0 ? `${selectedItemIds.length} selected` : `${items.length} visible items`}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={bulkAction}
+                onChange={(event) => setBulkAction(event.target.value as InventoryBulkAction)}
+                disabled={bulkUpdating}
+              >
+                {bulkActions.map((action) => (
+                  <option key={action.value} value={action.value}>
+                    {action.label}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={applyBulkAction} disabled={bulkUpdating || selectedItemIds.length === 0}>
+                {bulkUpdating ? 'Applying...' : 'Apply bulk action'}
+              </Button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th className="w-12 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible inventory"
+                      checked={allVisibleSelected}
+                      onChange={(event) => toggleAllVisible(event.target.checked)}
+                    />
+                  </th>
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Bin</th>
                   <th className="px-4 py-3">Inventory</th>
@@ -265,7 +405,7 @@ export function InventoryDashboard({
               <tbody className="divide-y divide-slate-200">
                 {items.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-10 text-center text-slate-500" colSpan={7}>
+                    <td className="px-4 py-10 text-center text-slate-500" colSpan={8}>
                       {isFiltered
                         ? 'No inventory items match the current filters.'
                         : 'No inventory items yet. Create your first item from the intake form above.'}
@@ -274,6 +414,14 @@ export function InventoryDashboard({
                 ) : (
                   items.map((item) => (
                     <tr key={item.id} className="align-top">
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${item.sku}`}
+                          checked={selectedItemIds.includes(item.id)}
+                          onChange={(event) => toggleSelectedItem(item.id, event.target.checked)}
+                        />
+                      </td>
                       <td className="px-4 py-4">
                         <div className="flex gap-4">
                           <div className="h-20 w-24 overflow-hidden rounded-2xl bg-slate-100">

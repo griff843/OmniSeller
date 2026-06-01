@@ -5,6 +5,7 @@ import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { CreatePhotoUploadRequestDto } from './dto/create-photo-upload-request.dto';
 import { ListInventoryQueryDto } from './dto/list-inventory-query.dto';
+import { PreviewInventoryCsvImportDto } from './dto/preview-inventory-csv-import.dto';
 import { ReorderPhotosDto } from './dto/reorder-photos.dto';
 import { UpdateInventoryItemDto } from './dto/update-inventory-item.dto';
 import { InventoryService } from './inventory.service';
@@ -31,6 +32,11 @@ export class InventoryController {
   @Post('bulk')
   bulkUpdate(@Body() body: BulkUpdateInventoryItemsDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
     return this.svc.bulkUpdate(body, userId);
+  }
+
+  @Post('import/csv/preview')
+  previewCsvImport(@Body() body: PreviewInventoryCsvImportDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
+    return this.svc.previewCsvImport(body, userId);
   }
 
   @Get(':id')
