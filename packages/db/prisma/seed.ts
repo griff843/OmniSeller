@@ -511,6 +511,16 @@ async function main() {
         metadata: {
           source: 'local-seed',
           note: 'Used to verify READY_TO_PUBLISH behavior.',
+          ebay: {
+            marketplaceId: 'EBAY_US',
+            categoryTreeId: '0',
+            categoryTreeVersion: 'local-seed',
+            categoryId: '15230',
+            categoryName: 'SLR Film Cameras',
+            breadcrumb: 'Cameras & Photo > Film Photography > Film Cameras > SLR Film Cameras',
+            selectedAt: now.toISOString(),
+            requiredAspects: ['Brand', 'Model', 'Format', 'Type'],
+          },
         },
       },
     ],

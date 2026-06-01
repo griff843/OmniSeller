@@ -10,6 +10,7 @@ import {
 } from '../inventory/inventory-workflow-state';
 import { getPublishStateMessage } from './publish-state';
 import { MARKETPLACE_PUBLISH_PROVIDER, MarketplacePublishProvider } from './publishing/marketplace-publish.contract';
+import { getDraftMissingFields, hasPublishableListingDraft } from './listing-draft-readiness';
 
 const PUBLISH_QUEUE = 'publishListing';
 
@@ -54,13 +55,8 @@ export class PublishProcessor extends WorkerHost {
     const readyPhotoCount = (item.photos ?? []).filter(
       (photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url),
     ).length;
-    const hasPublishableDraft = Boolean(
-      draft?.title?.trim() &&
-      draft?.description?.trim() &&
-      draft?.category?.trim() &&
-      draft?.priceCents !== null &&
-      draft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(draft);
+    const hasPublishableDraft = hasPublishableListingDraft(draft);
     const snapshot = {
       title: item.title,
       condition: item.condition,
@@ -68,6 +64,7 @@ export class PublishProcessor extends WorkerHost {
       hasSuggestion: false,
       hasDraft: Boolean(draft),
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing: (item.listings ?? []).length > 0,
       saleStatus: item.saleStatus ?? 'AVAILABLE',
     } as const;
@@ -215,13 +212,8 @@ export class PublishProcessor extends WorkerHost {
     const readyPhotoCount = (item.photos ?? []).filter(
       (photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url),
     ).length;
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title?.trim() &&
-      item.listingDraft?.description?.trim() &&
-      item.listingDraft?.category?.trim() &&
-      item.listingDraft?.priceCents !== null &&
-      item.listingDraft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const hasActiveListing = (item.listings ?? []).length > 0;
     const snapshot = {
       title: item.title,
@@ -230,6 +222,7 @@ export class PublishProcessor extends WorkerHost {
       hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
       hasDraft: Boolean(item.listingDraft),
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing,
       saleStatus: item.saleStatus ?? 'AVAILABLE',
     } as const;

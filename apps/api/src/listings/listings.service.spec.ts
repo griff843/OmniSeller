@@ -8,6 +8,25 @@ import { ListingsService } from './listings.service';
 
 const add = jest.fn();
 
+function publishableDraft(overrides: Record<string, unknown> = {}) {
+  return {
+    title: 'Draft title',
+    description: 'Draft description',
+    category: 'Cameras',
+    priceCents: 19900,
+    itemSpecifics: {
+      Brand: 'Canon',
+    },
+    metadata: {
+      ebay: {
+        categoryId: '31388',
+        requiredAspects: ['Brand'],
+      },
+    },
+    ...overrides,
+  };
+}
+
 jest.mock('@omniseller/db', () => ({
   prisma: {
     inventoryItem: {
@@ -39,12 +58,7 @@ describe('ListingsService', () => {
       condition: 'Used',
       saleStatus: 'AVAILABLE',
       photos: [],
-      listingDraft: {
-        title: 'Draft title',
-        description: 'Draft description',
-        category: 'Cameras',
-        priceCents: 19900,
-      },
+      listingDraft: publishableDraft(),
       listings: [],
     });
     prisma.inventoryItem.update.mockResolvedValue({
@@ -78,12 +92,7 @@ describe('ListingsService', () => {
       saleStatus: 'AVAILABLE',
       publishStatus: 'NOT_REQUESTED',
       photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/photo.jpg' }],
-      listingDraft: {
-        title: 'Draft title',
-        description: 'Draft description',
-        category: 'Cameras',
-        priceCents: 19900,
-      },
+      listingDraft: publishableDraft(),
       listings: [],
     });
     prisma.marketplaceAccount.findFirst.mockResolvedValue(null);
@@ -117,12 +126,7 @@ describe('ListingsService', () => {
       saleStatus: 'AVAILABLE',
       publishStatus: 'NOT_REQUESTED',
       photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/photo.jpg' }],
-      listingDraft: {
-        title: 'Draft title',
-        description: 'Draft description',
-        category: 'Cameras',
-        priceCents: 19900,
-      },
+      listingDraft: publishableDraft(),
       listings: [],
     });
     prisma.marketplaceAccount.findFirst.mockResolvedValue({
@@ -168,16 +172,42 @@ describe('ListingsService', () => {
       publishMarketplace: 'ebay',
       publishError: null,
       photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/photo.jpg' }],
-      listingDraft: {
-        title: 'Draft title',
-        description: 'Draft description',
-        category: 'Cameras',
-        priceCents: 19900,
-      },
+      listingDraft: publishableDraft(),
       listings: [],
     });
 
     await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(ConflictException);
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('rejects publish when the draft only has free-text category without eBay taxonomy metadata', async () => {
+    prisma.inventoryItem.findUnique.mockResolvedValue({
+      id: 'item_1',
+      userId: 'dev-user',
+      title: 'Vintage Camera',
+      condition: 'Used',
+      saleStatus: 'AVAILABLE',
+      photos: [{ uploadStatus: 'READY', url: 'https://cdn.test/photo.jpg' }],
+      listingDraft: publishableDraft({ metadata: {} }),
+      listings: [],
+    });
+    prisma.inventoryItem.update.mockResolvedValue({
+      publishStatus: 'BLOCKED',
+      publishMarketplace: 'ebay',
+      publishRequestedAt: new Date('2026-03-12T15:00:00.000Z'),
+      publishFailedAt: new Date('2026-03-12T15:00:00.000Z'),
+      publishError: 'Complete draft eBay category ID before publish.',
+    });
+
+    await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          publishStatus: 'BLOCKED',
+          publishError: 'Complete draft eBay category ID before publish.',
+        }),
+      }),
+    );
     expect(add).not.toHaveBeenCalled();
   });
 

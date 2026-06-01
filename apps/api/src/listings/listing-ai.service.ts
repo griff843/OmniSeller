@@ -23,6 +23,7 @@ import {
 } from '../inventory/inventory-workflow-state';
 import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 import { ownsRecord, resolveUserId } from '../common/user-context';
+import { getDraftMissingFields, hasPublishableListingDraft } from './listing-draft-readiness';
 
 @Injectable()
 export class ListingAiService {
@@ -294,13 +295,8 @@ export class ListingAiService {
     const readyPhotoCount = (item.photos ?? []).filter(
       (photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url),
     ).length;
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title?.trim() &&
-      item.listingDraft?.description?.trim() &&
-      item.listingDraft?.category?.trim() &&
-      item.listingDraft?.priceCents !== null &&
-      item.listingDraft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const hasActiveListing = (item.listings ?? []).length > 0;
     const snapshot = {
       title: item.title,
@@ -309,6 +305,7 @@ export class ListingAiService {
       hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
       hasDraft: Boolean(item.listingDraft),
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing,
       saleStatus: item.saleStatus ?? 'AVAILABLE',
     } as const;
@@ -366,13 +363,8 @@ export class ListingAiService {
 
   private serializeWorkflow(item: any) {
     const readyPhotoCount = (item.photos ?? []).filter((photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url)).length;
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title?.trim() &&
-      item.listingDraft?.description?.trim() &&
-      item.listingDraft?.category?.trim() &&
-      item.listingDraft?.priceCents !== null &&
-      item.listingDraft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const hasDraft = Boolean(item.listingDraft);
     const hasActiveListing = (item.listings ?? []).length > 0;
     const snapshot = {
@@ -382,15 +374,10 @@ export class ListingAiService {
       hasSuggestion: (item.aiListingSuggestions ?? []).length > 0,
       hasDraft,
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing,
       saleStatus: item.saleStatus ?? 'AVAILABLE',
     } as const;
-    const draftMissingFields = [
-      !item.listingDraft?.title?.trim() ? 'title' : null,
-      !item.listingDraft?.description?.trim() ? 'description' : null,
-      !item.listingDraft?.category?.trim() ? 'category' : null,
-      item.listingDraft?.priceCents === null || item.listingDraft?.priceCents === undefined ? 'price' : null,
-    ].filter((value): value is string => value !== null);
     const publishState = {
       status: item.publishStatus ?? 'NOT_REQUESTED',
       marketplace: item.publishMarketplace ?? 'ebay',

@@ -15,6 +15,7 @@ export type InventoryWorkflowSnapshot = {
   hasSuggestion: boolean;
   hasDraft: boolean;
   hasPublishableDraft: boolean;
+  draftMissingFields?: string[];
   hasActiveListing: boolean;
   saleStatus: SaleLifecycleStatusValue;
 };
@@ -93,7 +94,12 @@ export function buildReadinessBlockers(snapshot: InventoryWorkflowSnapshot): str
   }
 
   if (!snapshot.hasPublishableDraft) {
-    blockers.push('Complete a draft title, description, category, and price before publish.');
+    const missingFields = snapshot.draftMissingFields?.filter(Boolean) ?? [];
+    blockers.push(
+      missingFields.length > 0
+        ? `Complete draft ${missingFields.join(', ')} before publish.`
+        : 'Complete a draft title, description, category, price, eBay category ID, and required item specifics before publish.',
+    );
   }
 
   if (snapshot.saleStatus === 'RESERVED' || snapshot.saleStatus === 'SOLD' || snapshot.saleStatus === 'SHIPPED') {

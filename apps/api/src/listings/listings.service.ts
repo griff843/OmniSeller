@@ -13,6 +13,7 @@ import { buildReadinessBlockers, isPublishReady } from '../inventory/inventory-w
 import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 import { MARKETPLACE_PUBLISH_PROVIDER, MarketplacePublishProvider } from './publishing/marketplace-publish.contract';
 import { ownsRecord, resolveUserId } from '../common/user-context';
+import { getDraftMissingFields, hasPublishableListingDraft } from './listing-draft-readiness';
 
 const PUBLISH_QUEUE = 'publishListing';
 
@@ -46,13 +47,8 @@ export class ListingsService {
     const readyPhotoCount = (item.photos ?? []).filter(
       (photo: any) => photo.uploadStatus === 'READY' && Boolean(photo.url),
     ).length;
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title?.trim() &&
-      item.listingDraft?.description?.trim() &&
-      item.listingDraft?.category?.trim() &&
-      item.listingDraft?.priceCents !== null &&
-      item.listingDraft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const snapshot = {
       title: item.title,
       condition: item.condition,
@@ -60,6 +56,7 @@ export class ListingsService {
       hasSuggestion: false,
       hasDraft: Boolean(item.listingDraft),
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing: (item.listings ?? []).length > 0,
       saleStatus: item.saleStatus ?? 'AVAILABLE',
     } as const;

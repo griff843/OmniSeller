@@ -23,6 +23,7 @@ import { PhotoProcessingService } from './photo-processing.service';
 import { PhotoStoragePathService } from './photo-storage-path.service';
 import { getPublishStateMessage, isPublishInFlight } from '../listings/publish-state';
 import { DEV_USER_ID, ownsRecord, resolveUserId } from '../common/user-context';
+import { getDraftMissingFields, hasPublishableListingDraft } from '../listings/listing-draft-readiness';
 
 @Injectable()
 export class InventoryService {
@@ -502,13 +503,8 @@ export class InventoryService {
     ).length;
     const latestSuggestion = item.aiListingSuggestions?.[0] ?? null;
     const hasDraft = Boolean(item.listingDraft);
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title?.trim() &&
-      item.listingDraft?.description?.trim() &&
-      item.listingDraft?.category?.trim() &&
-      item.listingDraft?.priceCents !== null &&
-      item.listingDraft?.priceCents !== undefined,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const hasActiveListing = (item.listings ?? []).length > 0;
 
     await prisma.inventoryItem.update({
@@ -521,6 +517,7 @@ export class InventoryService {
           hasSuggestion: Boolean(latestSuggestion),
           hasDraft,
           hasPublishableDraft,
+          draftMissingFields,
           hasActiveListing,
           saleStatus: (item.saleStatus ?? 'AVAILABLE') as SaleLifecycleStatusValue,
         }),
@@ -535,12 +532,8 @@ export class InventoryService {
     const readyPhotoCount = photos.filter((photo) => photo.uploadStatus === 'READY' && Boolean(photo.url)).length;
     const latestSuggestion = item.aiListingSuggestions?.[0] ?? null;
     const hasDraft = Boolean(item.listingDraft);
-    const hasPublishableDraft = Boolean(
-      item.listingDraft?.title &&
-      item.listingDraft?.description &&
-      item.listingDraft?.category &&
-      (item.listingDraft?.priceCents ?? null) !== null,
-    );
+    const draftMissingFields = getDraftMissingFields(item.listingDraft);
+    const hasPublishableDraft = hasPublishableListingDraft(item.listingDraft);
     const snapshot = {
       title: item.title ?? null,
       condition: item.condition ?? null,
@@ -548,6 +541,7 @@ export class InventoryService {
       hasSuggestion: Boolean(latestSuggestion),
       hasDraft,
       hasPublishableDraft,
+      draftMissingFields,
       hasActiveListing: (item.listings ?? []).length > 0,
       saleStatus: (item.saleStatus ?? 'AVAILABLE') as SaleLifecycleStatusValue,
     } as const;
