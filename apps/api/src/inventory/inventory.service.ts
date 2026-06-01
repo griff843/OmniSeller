@@ -75,39 +75,7 @@ export class InventoryService {
 
   async list(query: ListInventoryQueryDto = {}, userId?: string): Promise<unknown> {
     const ownerId = resolveUserId(userId);
-    const normalizedQuery = query.q?.trim();
-    const normalizedBinCode = query.binCode ? normalizeSku(query.binCode) : undefined;
-
-    const where: any = {
-      userId: ownerId,
-    };
-
-    if (normalizedQuery) {
-      where.OR = [
-        { sku: { contains: normalizedQuery, mode: 'insensitive' } },
-        { title: { contains: normalizedQuery, mode: 'insensitive' } },
-        { brand: { contains: normalizedQuery, mode: 'insensitive' } },
-        { model: { contains: normalizedQuery, mode: 'insensitive' } },
-        { upc: { contains: normalizedQuery, mode: 'insensitive' } },
-        { scanCode: { contains: normalizedQuery, mode: 'insensitive' } },
-      ];
-    }
-
-    if (normalizedBinCode) {
-      where.bin = { is: { code: normalizedBinCode } };
-    }
-
-    if (query.inventoryStatus) {
-      where.inventoryStatus = query.inventoryStatus;
-    }
-
-    if (query.listingReadiness) {
-      where.listingReadiness = query.listingReadiness;
-    }
-
-    if (query.saleStatus) {
-      where.saleStatus = query.saleStatus;
-    }
+    const where = this.buildInventoryWhere(query, ownerId);
 
     const items = await prisma.inventoryItem.findMany({
       where,
@@ -119,6 +87,55 @@ export class InventoryService {
       items: items.map((item: any) => this.serializeInventoryItem(item)),
       filters: query,
     };
+  }
+
+  async exportCsv(query: ListInventoryQueryDto = {}, userId?: string): Promise<string> {
+    const ownerId = resolveUserId(userId);
+    const items = await prisma.inventoryItem.findMany({
+      where: this.buildInventoryWhere(query, ownerId),
+      orderBy: this.buildListSort(query.sort),
+      include: {
+        bin: true,
+      },
+    } as any);
+    const headers = [
+      'sku',
+      'title',
+      'description',
+      'category',
+      'condition',
+      'brand',
+      'model',
+      'upc',
+      'scanCode',
+      'costBasisCents',
+      'bin',
+      'inventoryStatus',
+      'listingReadiness',
+      'saleStatus',
+      'createdAt',
+      'updatedAt',
+    ];
+    const rows = items.map((item: any) => [
+      item.sku,
+      item.title,
+      item.description,
+      item.category,
+      item.condition,
+      item.brand,
+      item.model,
+      item.upc,
+      item.scanCode,
+      item.costBasisCents ?? 0,
+      item.bin?.code,
+      item.inventoryStatus,
+      item.listingReadiness,
+      item.saleStatus,
+      item.createdAt instanceof Date ? item.createdAt.toISOString() : item.createdAt,
+      item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
+    ]);
+
+    return [headers, ...rows].map((row) => row.map((value) => this.csvCell(value)).join(',')).join('\r\n');
   }
 
   async listBins(userId?: string): Promise<unknown> {
@@ -252,7 +269,7 @@ export class InventoryService {
     const ownerId = resolveUserId(userId);
     const itemIds = this.validateBulkItemIds(dto.itemIds);
     const action = this.validateBulkAction(dto.action);
-    const updateData = this.buildBulkUpdateData(action);
+    const updateData = await this.buildBulkUpdateData(action, dto, ownerId);
     const foundItems: any[] = await prisma.inventoryItem.findMany({
       where: {
         id: { in: itemIds },
@@ -262,6 +279,7 @@ export class InventoryService {
         id: true,
         title: true,
         condition: true,
+        inventoryStatus: true,
         saleStatus: true,
         photos: {
           where: {
@@ -782,6 +800,43 @@ export class InventoryService {
     }
   }
 
+  private buildInventoryWhere(query: ListInventoryQueryDto, ownerId: string): any {
+    const normalizedQuery = query.q?.trim();
+    const normalizedBinCode = query.binCode ? normalizeSku(query.binCode) : undefined;
+    const where: any = {
+      userId: ownerId,
+    };
+
+    if (normalizedQuery) {
+      where.OR = [
+        { sku: { contains: normalizedQuery, mode: 'insensitive' } },
+        { title: { contains: normalizedQuery, mode: 'insensitive' } },
+        { brand: { contains: normalizedQuery, mode: 'insensitive' } },
+        { model: { contains: normalizedQuery, mode: 'insensitive' } },
+        { upc: { contains: normalizedQuery, mode: 'insensitive' } },
+        { scanCode: { contains: normalizedQuery, mode: 'insensitive' } },
+      ];
+    }
+
+    if (normalizedBinCode) {
+      where.bin = { is: { code: normalizedBinCode } };
+    }
+
+    if (query.inventoryStatus) {
+      where.inventoryStatus = query.inventoryStatus;
+    }
+
+    if (query.listingReadiness) {
+      where.listingReadiness = query.listingReadiness;
+    }
+
+    if (query.saleStatus) {
+      where.saleStatus = query.saleStatus;
+    }
+
+    return where;
+  }
+
   private validateBulkItemIds(itemIds: unknown): string[] {
     if (!Array.isArray(itemIds)) {
       throw new BadRequestException('itemIds must be an array');
@@ -1050,6 +1105,19 @@ export class InventoryService {
     return typeof value === 'string' && value.length > 0 ? value : null;
   }
 
+  private csvCell(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    const text = String(value);
+    if (/[",\r\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    return text;
+  }
+
   private validateCsvPreviewRow(
     normalized: Partial<Record<InventoryCsvMappedField, string | number | null>>,
     errors: string[],
@@ -1091,7 +1159,11 @@ export class InventoryService {
     return action as InventoryBulkUpdateAction;
   }
 
-  private buildBulkUpdateData(action: InventoryBulkUpdateAction): Record<string, unknown> {
+  private async buildBulkUpdateData(
+    action: InventoryBulkUpdateAction,
+    dto: BulkUpdateInventoryItemsDto,
+    ownerId: string,
+  ): Promise<Record<string, unknown>> {
     switch (action) {
       case 'MARK_READY_FOR_LISTING':
         return { listingReadiness: 'READY_FOR_LISTING' };
@@ -1101,6 +1173,14 @@ export class InventoryService {
         return { inventoryStatus: 'IN_STOCK', saleStatus: 'AVAILABLE' };
       case 'ARCHIVE':
         return { inventoryStatus: 'ARCHIVED' };
+      case 'ASSIGN_BIN': {
+        if (!dto.binCode?.trim()) {
+          throw new BadRequestException('Bulk bin assignment requires a binCode');
+        }
+
+        const bin = await this.findOrCreateBin(dto.binCode, ownerId);
+        return { binId: bin.id };
+      }
     }
   }
 
@@ -1127,6 +1207,10 @@ export class InventoryService {
       if (!item.title?.trim() || !item.condition?.trim() || (item.photos?.length ?? 0) === 0) {
         return `Inventory item ${item.id} needs title, condition, and at least one ready photo before listing work`;
       }
+    }
+
+    if (action === 'ASSIGN_BIN' && item.inventoryStatus === 'ARCHIVED') {
+      return `Inventory item ${item.id} cannot be assigned a bin while archived`;
     }
 
     return null;

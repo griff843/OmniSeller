@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { USER_ID_HEADER } from '../common/user-context';
 import { ApplyInventoryCsvImportDto } from './dto/apply-inventory-csv-import.dto';
 import { BulkUpdateInventoryItemsDto } from './dto/bulk-update-inventory-items.dto';
@@ -23,6 +23,13 @@ export class InventoryController {
   @Get()
   list(@Query() query: ListInventoryQueryDto, @Headers(USER_ID_HEADER) userId?: string): Promise<unknown> {
     return this.svc.list(query, userId);
+  }
+
+  @Get('export/csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="omniseller-inventory.csv"')
+  exportCsv(@Query() query: ListInventoryQueryDto, @Headers(USER_ID_HEADER) userId?: string): Promise<string> {
+    return this.svc.exportCsv(query, userId);
   }
 
   @Post()

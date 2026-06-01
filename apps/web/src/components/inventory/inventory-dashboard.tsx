@@ -27,6 +27,7 @@ const bulkActions: Array<{ value: InventoryBulkAction; label: string }> = [
   { value: 'MARK_HOLD', label: 'Put on hold' },
   { value: 'MARK_AVAILABLE', label: 'Mark available' },
   { value: 'ARCHIVE', label: 'Archive' },
+  { value: 'ASSIGN_BIN', label: 'Assign bin' },
 ];
 
 function badgeTone(value: string) {
@@ -72,6 +73,7 @@ export function InventoryDashboard({
   const [sort, setSort] = useState('created-desc');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<InventoryBulkAction>('MARK_HOLD');
+  const [bulkBinCode, setBulkBinCode] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [csvImportText, setCsvImportText] = useState('');
   const [csvDelimiter, setCsvDelimiter] = useState(',');
@@ -215,12 +217,17 @@ export function InventoryDashboard({
     setFeedback(null);
 
     try {
+      if (bulkAction === 'ASSIGN_BIN' && !bulkBinCode.trim()) {
+        throw new Error('Enter a bin code before applying bulk bin assignment.');
+      }
+
       const response = await fetch('/api/inventory/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds: selectedItemIds,
           action: bulkAction,
+          ...(bulkAction === 'ASSIGN_BIN' ? { binCode: bulkBinCode.trim() } : {}),
         }),
       });
 
@@ -247,6 +254,18 @@ export function InventoryDashboard({
     } finally {
       setBulkUpdating(false);
     }
+  }
+
+  function exportCsv() {
+    const params = new URLSearchParams();
+    if (q.trim()) params.set('q', q.trim());
+    if (binCode) params.set('binCode', binCode);
+    if (inventoryStatus) params.set('inventoryStatus', inventoryStatus);
+    if (listingReadiness) params.set('listingReadiness', listingReadiness);
+    if (saleStatus) params.set('saleStatus', saleStatus);
+    if (sort) params.set('sort', sort);
+
+    window.location.href = `/api/inventory/export/csv${params.toString() ? `?${params.toString()}` : ''}`;
   }
 
   async function loadCsvFile(file: File | null) {
@@ -591,8 +610,20 @@ export function InventoryDashboard({
                   </option>
                 ))}
               </select>
+              {bulkAction === 'ASSIGN_BIN' ? (
+                <input
+                  className="w-36 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Bin code"
+                  value={bulkBinCode}
+                  onChange={(event) => setBulkBinCode(event.target.value)}
+                  disabled={bulkUpdating}
+                />
+              ) : null}
               <Button onClick={applyBulkAction} disabled={bulkUpdating || selectedItemIds.length === 0}>
                 {bulkUpdating ? 'Applying...' : 'Apply bulk action'}
+              </Button>
+              <Button onClick={exportCsv} disabled={loading}>
+                Export CSV
               </Button>
             </div>
           </div>

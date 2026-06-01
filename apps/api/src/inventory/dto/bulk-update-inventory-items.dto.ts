@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export const INVENTORY_BULK_UPDATE_LIMIT = 100;
 
@@ -7,6 +7,7 @@ export const InventoryBulkUpdateActions = [
   'MARK_HOLD',
   'MARK_AVAILABLE',
   'ARCHIVE',
+  'ASSIGN_BIN',
 ] as const;
 
 export type InventoryBulkUpdateAction = (typeof InventoryBulkUpdateActions)[number];
@@ -22,4 +23,9 @@ export class BulkUpdateInventoryItemsDto {
   @IsString()
   @IsIn(InventoryBulkUpdateActions)
   action!: InventoryBulkUpdateAction;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  binCode?: string;
 }

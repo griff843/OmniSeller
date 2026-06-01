@@ -112,7 +112,7 @@ export type InventoryListResponse = {
   };
 };
 
-export type InventoryBulkAction = 'MARK_READY_FOR_LISTING' | 'MARK_HOLD' | 'MARK_AVAILABLE' | 'ARCHIVE';
+export type InventoryBulkAction = 'MARK_READY_FOR_LISTING' | 'MARK_HOLD' | 'MARK_AVAILABLE' | 'ARCHIVE' | 'ASSIGN_BIN';
 
 export type InventoryBulkUpdateResponse = {
   action: InventoryBulkAction;

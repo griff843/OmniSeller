@@ -237,6 +237,52 @@ describe('InventoryService', () => {
     );
   });
 
+  it('exports filtered inventory rows as escaped CSV', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      {
+        sku: 'SKU-1',
+        title: 'Vintage, Camera',
+        description: 'Has "tested" lens',
+        category: 'Cameras',
+        condition: 'Used',
+        brand: 'Canon',
+        model: 'AE-1',
+        upc: '012345678905',
+        scanCode: 'SCAN99',
+        costBasisCents: 1234,
+        bin: { code: 'BIN-A1' },
+        inventoryStatus: 'IN_STOCK',
+        listingReadiness: 'NEEDS_PHOTOS',
+        saleStatus: 'AVAILABLE',
+        createdAt: new Date('2026-03-11T15:00:00.000Z'),
+        updatedAt: new Date('2026-03-12T15:00:00.000Z'),
+      },
+    ]);
+
+    const csv = await service.exportCsv({
+      q: 'canon',
+      binCode: 'bin a1',
+      sort: 'sku-asc',
+    }, 'dev-user');
+
+    expect(mockedPrisma.inventoryItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'dev-user',
+          bin: { is: { code: 'BIN-A1' } },
+        }),
+        orderBy: [{ sku: 'asc' }],
+        include: { bin: true },
+      }),
+    );
+    expect(csv).toBe(
+      [
+        'sku,title,description,category,condition,brand,model,upc,scanCode,costBasisCents,bin,inventoryStatus,listingReadiness,saleStatus,createdAt,updatedAt',
+        'SKU-1,"Vintage, Camera","Has ""tested"" lens",Cameras,Used,Canon,AE-1,012345678905,SCAN99,1234,BIN-A1,IN_STOCK,NEEDS_PHOTOS,AVAILABLE,2026-03-11T15:00:00.000Z,2026-03-12T15:00:00.000Z',
+      ].join('\r\n'),
+    );
+  });
+
   it('previews quoted CSV rows without writing inventory records', async () => {
     const result = (await service.previewCsvImport({
       csv: [
@@ -532,6 +578,73 @@ describe('InventoryService', () => {
     );
     expect(result.action).toBe('MARK_AVAILABLE');
     expect(result.counts).toEqual({ updated: 2, notFound: 0, failed: 0 });
+  });
+
+  it('assigns a bin to a bulk batch and creates the bin when needed', async () => {
+    mockedPrisma.bin.findFirst.mockResolvedValue(null);
+    mockedPrisma.bin.create.mockResolvedValue({ id: 'bin_1', code: 'BIN-A1', label: 'BIN-A1' });
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      { id: 'item_1', userId: 'dev-user', inventoryStatus: 'DRAFT', saleStatus: 'AVAILABLE', photos: [] },
+      { id: 'item_2', userId: 'dev-user', inventoryStatus: 'IN_STOCK', saleStatus: 'AVAILABLE', photos: [] },
+    ]);
+    mockedPrisma.inventoryItem.update.mockResolvedValue({});
+
+    const result = (await service.bulkUpdate({
+      itemIds: ['item_1', 'item_2'],
+      action: 'ASSIGN_BIN',
+      binCode: 'bin a1',
+    }, 'dev-user')) as {
+      action: string;
+      counts: { updated: number; notFound: number; failed: number };
+    };
+
+    expect(mockedPrisma.bin.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'dev-user',
+          code: 'BIN-A1',
+        }),
+      }),
+    );
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledTimes(2);
+    expect(mockedPrisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item_1' },
+        data: { binId: 'bin_1' },
+      }),
+    );
+    expect(result.action).toBe('ASSIGN_BIN');
+    expect(result.counts).toEqual({ updated: 2, notFound: 0, failed: 0 });
+  });
+
+  it('requires a bin code and skips archived items for bulk bin assignment', async () => {
+    await expect(service.bulkUpdate({ itemIds: ['item_1'], action: 'ASSIGN_BIN' }, 'dev-user')).rejects.toThrow(
+      'Bulk bin assignment requires a binCode',
+    );
+
+    mockedPrisma.bin.findFirst.mockResolvedValue({ id: 'bin_1', code: 'BIN-A1' });
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([
+      { id: 'archived_item', userId: 'dev-user', inventoryStatus: 'ARCHIVED', saleStatus: 'AVAILABLE', photos: [] },
+    ]);
+
+    const result = (await service.bulkUpdate({
+      itemIds: ['archived_item'],
+      action: 'ASSIGN_BIN',
+      binCode: 'bin a1',
+    }, 'dev-user')) as {
+      counts: { updated: number; notFound: number; failed: number };
+      results: Array<{ itemId: string; status: string; message?: string }>;
+    };
+
+    expect(mockedPrisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(result.counts).toEqual({ updated: 0, notFound: 0, failed: 1 });
+    expect(result.results).toEqual([
+      {
+        itemId: 'archived_item',
+        status: 'failed',
+        message: 'Inventory item archived_item cannot be assigned a bin while archived',
+      },
+    ]);
   });
 
   it('does not bulk hold listed or reserved inventory', async () => {
