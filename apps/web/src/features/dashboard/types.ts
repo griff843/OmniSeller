@@ -82,6 +82,9 @@ export type DashboardSummary = {
     needsPhotos: DashboardInventoryPreview[];
     readyForAi: DashboardInventoryPreview[];
     readyToPublish: DashboardInventoryPreview[];
+    missingCostBasis: DashboardInventoryPreview[];
+    unassignedBin: DashboardInventoryPreview[];
+    staleDraft: DashboardInventoryPreview[];
     publishBlocked: DashboardInventoryPreview[];
     shippingError: DashboardOrderPreview[];
   };

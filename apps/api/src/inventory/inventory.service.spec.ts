@@ -480,7 +480,50 @@ describe('InventoryService', () => {
     expect(result.skipped).toBe(0);
     expect(result.binsCreated).toBe(1);
     expect(result.results[0]).toEqual(expect.objectContaining({ status: 'created', sku: 'SKU-123' }));
-    expect(result.results[1].sku).toMatch(/^INV-\d{8}-[A-Z0-9]{6}$/);
+    expect(result.results[1].sku).toMatch(/^INV-CSV-[A-F0-9]{10}$/);
+  });
+
+  it('skips no-SKU CSV rows when the same import is applied again', async () => {
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([]);
+    mockedPrisma.inventoryItem.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({
+        ...data,
+        createdAt: new Date('2026-03-11T15:00:00.000Z'),
+        updatedAt: new Date('2026-03-11T15:00:00.000Z'),
+      }),
+    );
+
+    const dto = {
+      csv: ['title,condition,costBasisCents', 'Untitled Lot,New,500'].join('\n'),
+    };
+    const firstResult = (await service.applyCsvImport(dto, 'dev-user')) as {
+      created: number;
+      results: Array<{ status: string; sku: string }>;
+    };
+    const generatedSku = firstResult.results[0].sku;
+
+    expect(firstResult.created).toBe(1);
+    expect(generatedSku).toMatch(/^INV-CSV-[A-F0-9]{10}$/);
+
+    mockedPrisma.inventoryItem.findMany.mockResolvedValue([{ sku: generatedSku }]);
+    mockedPrisma.inventoryItem.create.mockClear();
+
+    const secondResult = (await service.applyCsvImport(dto, 'dev-user')) as {
+      created: number;
+      skipped: number;
+      results: Array<{ status: string; sku: string; message?: string }>;
+    };
+
+    expect(mockedPrisma.inventoryItem.create).not.toHaveBeenCalled();
+    expect(secondResult.created).toBe(0);
+    expect(secondResult.skipped).toBe(1);
+    expect(secondResult.results).toEqual([
+      expect.objectContaining({
+        status: 'skipped',
+        sku: generatedSku,
+        message: `SKU ${generatedSku} already exists`,
+      }),
+    ]);
   });
 
   it('skips duplicate and existing CSV SKUs during apply', async () => {

@@ -85,6 +85,7 @@ describe('DashboardService', () => {
         publishStatus: 'NOT_REQUESTED',
         publishError: null,
         costBasisCents: 1200,
+        binId: 'bin_1',
         updatedAt: new Date('2026-03-12T10:00:00.000Z'),
       },
       {
@@ -96,11 +97,30 @@ describe('DashboardService', () => {
         saleStatus: 'LISTED',
         publishStatus: 'FAILED',
         publishError: 'Marketplace rejected category',
-        costBasisCents: 3000,
+        costBasisCents: 0,
+        binId: null,
         updatedAt: new Date('2026-03-12T11:00:00.000Z'),
       },
+      {
+        id: 'item_3',
+        sku: 'SKU-3',
+        title: 'Stale draft',
+        inventoryStatus: 'DRAFT',
+        listingReadiness: 'NEEDS_INTAKE',
+        saleStatus: 'AVAILABLE',
+        publishStatus: 'NOT_REQUESTED',
+        publishError: null,
+        costBasisCents: 0,
+        binId: null,
+        updatedAt: new Date('2026-03-01T11:00:00.000Z'),
+      },
     ]);
-    prisma.inventoryItem.count.mockResolvedValue(2);
+    prisma.inventoryItem.count
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1);
     prisma.inventoryItem.aggregate.mockResolvedValue({ _sum: { costBasisCents: 4200 } });
     prisma.inventoryItem.groupBy
       .mockResolvedValueOnce([
@@ -166,7 +186,7 @@ describe('DashboardService', () => {
         },
       }),
     );
-    expect(summary.inventory.total).toBe(2);
+    expect(summary.inventory.total).toBe(3);
     expect(summary.inventory.workflow.blocked).toBe(1);
     expect(summary.listings.active).toBe(1);
     expect(summary.orders.requiringShipping).toBe(1);
@@ -184,9 +204,12 @@ describe('DashboardService', () => {
       missingCostBasis: 2,
       unassignedBin: 2,
       staleDraftDays: 14,
-      staleDraft: 2,
+      staleDraft: 1,
     });
     expect(summary.workQueues.needsPhotos).toHaveLength(1);
+    expect(summary.workQueues.missingCostBasis.map((item: any) => item.sku)).toEqual(['SKU-2', 'SKU-3']);
+    expect(summary.workQueues.unassignedBin.map((item: any) => item.sku)).toEqual(['SKU-2', 'SKU-3']);
+    expect(summary.workQueues.staleDraft.map((item: any) => item.sku)).toEqual(['SKU-3']);
     expect(summary.workQueues.publishBlocked[0].publishError).toContain('category');
     expect(summary.workQueues.shippingError).toHaveLength(1);
   });

@@ -125,6 +125,7 @@ export class DashboardService {
           publishStatus: true,
           publishError: true,
           costBasisCents: true,
+          binId: true,
           updatedAt: true,
         },
         orderBy: { updatedAt: 'desc' },
@@ -321,6 +322,18 @@ export class DashboardService {
         needsPhotos: this.queueByReadiness(items, 'NEEDS_PHOTOS'),
         readyForAi: this.queueByReadiness(items, 'READY_FOR_AI'),
         readyToPublish: this.queueByReadiness(items, 'READY_TO_PUBLISH'),
+        missingCostBasis: items
+          .filter((item: any) => item.costBasisCents <= 0)
+          .slice(0, DASHBOARD_PREVIEW_LIMIT)
+          .map((item: any) => this.serializeInventoryPreview(item)),
+        unassignedBin: items
+          .filter((item: any) => !item.binId && item.inventoryStatus !== 'ARCHIVED' && !['SOLD', 'SHIPPED'].includes(item.saleStatus))
+          .slice(0, DASHBOARD_PREVIEW_LIMIT)
+          .map((item: any) => this.serializeInventoryPreview(item)),
+        staleDraft: items
+          .filter((item: any) => item.inventoryStatus === 'DRAFT' && item.updatedAt < staleDraftBefore)
+          .slice(0, DASHBOARD_PREVIEW_LIMIT)
+          .map((item: any) => this.serializeInventoryPreview(item)),
         publishBlocked: items
           .filter((item: any) => ['FAILED', 'UNAVAILABLE', 'BLOCKED'].includes(item.publishStatus))
           .slice(0, DASHBOARD_PREVIEW_LIMIT)

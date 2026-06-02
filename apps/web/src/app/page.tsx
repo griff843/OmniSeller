@@ -217,6 +217,9 @@ function Dashboard({ summary }: { summary: DashboardSummary }) {
           <InventoryQueue title="Needs photos" href="/inventory?listingReadiness=NEEDS_PHOTOS" items={summary.workQueues.needsPhotos} />
           <InventoryQueue title="Ready for AI" href="/inventory?listingReadiness=READY_FOR_AI" items={summary.workQueues.readyForAi} />
           <InventoryQueue title="Ready to publish" href="/inventory?listingReadiness=READY_TO_PUBLISH" items={summary.workQueues.readyToPublish} />
+          <InventoryQueue title="Missing cost" href="/inventory" items={summary.workQueues.missingCostBasis} />
+          <InventoryQueue title="No bin" href="/inventory" items={summary.workQueues.unassignedBin} />
+          <InventoryQueue title="Stale drafts" href="/inventory?inventoryStatus=DRAFT" items={summary.workQueues.staleDraft} />
           <InventoryQueue title="Publish blocked" href="/inventory" items={summary.workQueues.publishBlocked} />
           <OrderQueue title="Shipping errors" orders={summary.workQueues.shippingError} empty="No shipping errors are active." />
         </section>

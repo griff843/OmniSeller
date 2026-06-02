@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhotoAssetRole, PhotoUploadStatus, prisma } from '@omniseller/db';
@@ -49,6 +49,20 @@ type InventoryCsvMappedField =
   | 'scanCode'
   | 'costBasisCents'
   | 'binCode';
+
+const INVENTORY_CSV_IMPORT_FIELD_ORDER: InventoryCsvMappedField[] = [
+  'sku',
+  'title',
+  'description',
+  'category',
+  'condition',
+  'brand',
+  'model',
+  'upc',
+  'scanCode',
+  'costBasisCents',
+  'binCode',
+];
 
 type InventoryCsvPreviewRow = {
   rowNumber: number;
@@ -395,11 +409,14 @@ export class InventoryService {
     const validRows = preview.rows.filter((row) => row.errors.length === 0);
     const seenSkus = new Set<string>();
     const duplicateSkus = new Set<string>();
+    const autoSkusByRowNumber = new Map<number, string>();
 
     for (const row of validRows) {
-      const sku = typeof row.normalized.sku === 'string' && row.normalized.sku.length > 0 ? row.normalized.sku : null;
-      if (!sku) {
-        continue;
+      const manualSku = typeof row.normalized.sku === 'string' && row.normalized.sku.length > 0 ? row.normalized.sku : null;
+      const sku = manualSku ?? this.buildCsvImportAutoSku(row);
+
+      if (!manualSku) {
+        autoSkusByRowNumber.set(row.rowNumber, sku);
       }
 
       if (seenSkus.has(sku)) {
@@ -442,6 +459,7 @@ export class InventoryService {
 
       const normalized = row.normalized;
       const manualSku = typeof normalized.sku === 'string' && normalized.sku.length > 0 ? normalized.sku : null;
+      const rowSku = manualSku ?? autoSkusByRowNumber.get(row.rowNumber);
 
       if (manualSku && duplicateSkus.has(manualSku)) {
         skipped += 1;
@@ -455,13 +473,13 @@ export class InventoryService {
         continue;
       }
 
-      if (manualSku && existingSkuSet.has(manualSku)) {
+      if (rowSku && existingSkuSet.has(rowSku)) {
         skipped += 1;
         results.push({
           rowNumber: row.rowNumber,
           status: 'skipped',
-          sku: manualSku,
-          message: `SKU ${manualSku} already exists`,
+          sku: rowSku,
+          message: `SKU ${rowSku} already exists`,
           warnings: row.warnings,
         });
         continue;
@@ -470,7 +488,7 @@ export class InventoryService {
       try {
         const id = randomUUID();
         const createdAt = new Date();
-        const sku = manualSku ?? buildGeneratedSku({ id, createdAt });
+        const sku = rowSku ?? buildGeneratedSku({ id, createdAt });
         const binCode = typeof normalized.binCode === 'string' && normalized.binCode.length > 0 ? normalized.binCode : null;
         let bin: { id: string; code: string } | null = null;
 
@@ -605,6 +623,17 @@ export class InventoryService {
       headers,
       rows: previewRows,
     };
+  }
+
+  private buildCsvImportAutoSku(row: InventoryCsvPreviewRow): string {
+    const fingerprint = INVENTORY_CSV_IMPORT_FIELD_ORDER.map((field) => [field, row.normalized[field] ?? null]);
+    const hash = createHash('sha256')
+      .update(JSON.stringify({ rowNumber: row.rowNumber, values: fingerprint }))
+      .digest('hex')
+      .slice(0, 10)
+      .toUpperCase();
+
+    return `INV-CSV-${hash}`;
   }
 
   async createPhotoUploadRequests(inventoryItemId: string, dto: CreatePhotoUploadRequestDto, userId?: string): Promise<unknown> {
