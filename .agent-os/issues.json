@@ -1,13 +1,13 @@
 {
   "issues": [
     {
-      "id": "OMNI-103",
-      "title": "Add root verify script for Agent-OS lanes",
+      "id": "OMNI-104",
+      "title": "Document required environment variables",
       "status": "open",
       "labels": ["ready"],
       "tier": "T2",
       "lane_type": "hygiene",
-      "file_scope": ["package.json"]
+      "file_scope": ["README.md", ".env.example"]
     }
   ]
 }

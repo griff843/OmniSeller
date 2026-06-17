@@ -41,6 +41,20 @@ Default local database target:
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/omniseller?schema=public"
 ```
 
+Required local variables from `.env.example`:
+
+- `DATABASE_URL` points Prisma and the apps at local Postgres.
+- `NEXTAUTH_SECRET` is required by the web app auth configuration.
+- `NEXT_PUBLIC_APP_URL` identifies the local web app URL.
+
+Optional feature variables:
+
+- `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE`, and `STORAGE_BUCKET` enable Supabase-backed photo storage.
+- `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REDIRECT_URI`, `EBAY_ENV`, and `EBAY_API_BASE` enable eBay OAuth and fulfillment sync.
+- `EASYPOST_API_KEY` and `DEFAULT_SHIP_FROM_*` enable shipping rate and label purchase flows.
+- `OPENAI_MODEL` selects the AI listing suggestion model when that workflow is configured.
+- `OMNISELLER_API_BASE_URL`, `PORT`, `NODE_ENV`, `REDIS_HOST`, and `REDIS_PORT` can override local app defaults.
+
 3. Start infrastructure
 
 ```powershell
