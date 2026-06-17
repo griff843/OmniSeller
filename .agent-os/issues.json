@@ -1,13 +1,13 @@
 {
   "issues": [
     {
-      "id": "OMNI-102",
-      "title": "Document OmniSeller local development commands",
+      "id": "OMNI-103",
+      "title": "Add root verify script for Agent-OS lanes",
       "status": "open",
       "labels": ["ready"],
       "tier": "T2",
       "lane_type": "hygiene",
-      "file_scope": ["README.md"]
+      "file_scope": ["package.json"]
     }
   ]
 }

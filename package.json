@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
     "build": "pnpm --filter db build && pnpm --filter config build && pnpm --filter ui build && pnpm --filter web build && pnpm --filter api build",
+    "verify": "pnpm build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

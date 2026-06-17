@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-103",
+  "branch": "codex/omni-103-agent-os-loop",
+  "executor": "codex-cli",
+  "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-103-agent-os-loop",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-103-agent-os-loop",
+  "execution_location": {
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-103-agent-os-loop"
+  },
+  "file_scope_lock": [
+    "package.json"
+  ],
+  "heartbeat_at": "2026-06-17T15:36:11.257Z",
+  "expires_at": "2026-06-17T19:36:11.274Z",
+  "owner": {
+    "user": "griff843",
+    "host": "DESKTOP-GP6RM0V",
+    "pid": 97102,
+    "session_id": "DESKTOP-GP6RM0V:97102"
+  },
+  "status": "released",
+  "reclaim_history": [
+    {
+      "reclaimed_at": "2026-06-17T15:41:26.908Z",
+      "reclaimed_by": "agent-os",
+      "reason": "released: complete",
+      "previous_owner": {
+        "user": "griff843",
+        "host": "DESKTOP-GP6RM0V",
+        "pid": 97102,
+        "session_id": "DESKTOP-GP6RM0V:97102"
+      },
+      "previous_status": "active",
+      "last_heartbeat_at": "2026-06-17T15:36:11.257Z",
+      "locked_files": [
+        "package.json"
+      ],
+      "branch": "codex/omni-103-agent-os-loop",
+      "branch_status": "released_by_owner",
+      "pr_status": "released_by_owner"
+    }
+  ]
+}
