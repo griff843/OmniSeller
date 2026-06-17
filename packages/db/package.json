@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "main": "./index.js",
-  "types": "./src/index.ts",
+  "types": "./index.d.ts",
   "scripts": {
     "build": "node ./scripts/run-prisma.cjs generate",
     "generate": "node ./scripts/run-prisma.cjs generate",
