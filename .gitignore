@@ -40,6 +40,7 @@ packages/db/src
 
 # Turbo
 .turbo
+.out/
 
 # Build outputs
 *.tsbuildinfo

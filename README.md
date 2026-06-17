@@ -98,6 +98,10 @@ pnpm --filter api typecheck
 pnpm --filter web typecheck
 ```
 
+## Agent-OS test lane
+
+OMNI-101 validated a README-only Agent-OS worktree dispatch.
+
 ## Notes
 
 - Shipping works locally without EasyPost credentials, but shipping endpoints remain disabled until `EASYPOST_API_KEY` is set.

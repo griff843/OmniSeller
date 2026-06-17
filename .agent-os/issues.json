@@ -1,0 +1,13 @@
+{
+  "issues": [
+    {
+      "id": "OMNI-101",
+      "title": "First safe Agent-OS lane",
+      "status": "open",
+      "labels": ["ready"],
+      "tier": "T2",
+      "lane_type": "hygiene",
+      "file_scope": ["README.md"]
+    }
+  ]
+}

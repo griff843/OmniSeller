@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "total": 6,
+  "executors": {
+    "claude": 2,
+    "codex": 4
+  },
+  "merge_serialized_max": 1,
+  "singleton_types": [
+    "runtime",
+    "migration",
+    "modeling",
+    "data-canonical"
+  ],
+  "forbidden_combinations": [
+    [
+      "migration",
+      "runtime"
+    ],
+    [
+      "migration",
+      "migration"
+    ],
+    [
+      "migration",
+      "data-canonical"
+    ],
+    [
+      "runtime",
+      "runtime"
+    ],
+    [
+      "modeling",
+      "modeling"
+    ]
+  ],
+  "trial": {
+    "enabled": false,
+    "total": 8,
+    "executors": {
+      "claude": 3,
+      "codex": 5
+    },
+    "allowed_until": null,
+    "rationale": "Optional trial expansion. Enable only for safe lane types and bounded windows.",
+    "safe_types_only": [
+      "governance",
+      "hygiene",
+      "delivery-ui",
+      "verification"
+    ]
+  }
+}
