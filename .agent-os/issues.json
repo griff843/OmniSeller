@@ -1,8 +1,8 @@
 {
   "issues": [
     {
-      "id": "OMNI-101",
-      "title": "First safe Agent-OS lane",
+      "id": "OMNI-102",
+      "title": "Document OmniSeller local development commands",
       "status": "open",
       "labels": ["ready"],
       "tier": "T2",

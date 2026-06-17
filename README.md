@@ -98,6 +98,19 @@ pnpm --filter api typecheck
 pnpm --filter web typecheck
 ```
 
+## Local development
+
+```powershell
+pnpm install
+pnpm db:generate
+pnpm db:migrate:deploy
+pnpm dev
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
 ## Agent-OS test lane
 
 OMNI-101 validated a README-only Agent-OS worktree dispatch.
