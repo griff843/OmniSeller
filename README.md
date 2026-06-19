@@ -125,6 +125,9 @@ pnpm typecheck
 pnpm test
 ```
 
+For the standard Agent-OS and local build verification flow, see
+[`docs/runbooks/LOCAL_VERIFICATION.md`](docs/runbooks/LOCAL_VERIFICATION.md).
+
 ## Agent-OS test lane
 
 OMNI-101 validated a README-only Agent-OS worktree dispatch.

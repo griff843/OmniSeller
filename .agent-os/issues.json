@@ -7,7 +7,7 @@
       "labels": ["ready"],
       "tier": "T2",
       "lane_type": "hygiene",
-      "file_scope": ["README.md", "docs/"]
+      "file_scope": ["README.md", "docs/runbooks/LOCAL_VERIFICATION.md"]
     }
   ]
 }

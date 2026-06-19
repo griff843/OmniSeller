@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-105",
+  "branch": "codex/omni-105-agent-os-loop",
+  "executor": "codex-cli",
+  "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-105-agent-os-loop",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-105-agent-os-loop",
+  "execution_location": {
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-105-agent-os-loop"
+  },
+  "file_scope_lock": [
+    "docs/runbooks/LOCAL_VERIFICATION.md",
+    "README.md"
+  ],
+  "heartbeat_at": "2026-06-19T12:44:41.720Z",
+  "expires_at": "2026-06-19T16:44:41.720Z",
+  "owner": {
+    "user": "griff843",
+    "host": "DESKTOP-GP6RM0V",
+    "pid": 1822971,
+    "session_id": "DESKTOP-GP6RM0V:1822971"
+  },
+  "status": "released",
+  "reclaim_history": [
+    {
+      "reclaimed_at": "2026-06-19T12:46:31.273Z",
+      "reclaimed_by": "agent-os",
+      "reason": "released: complete",
+      "previous_owner": {
+        "user": "griff843",
+        "host": "DESKTOP-GP6RM0V",
+        "pid": 1822971,
+        "session_id": "DESKTOP-GP6RM0V:1822971"
+      },
+      "previous_status": "active",
+      "last_heartbeat_at": "2026-06-19T12:44:41.720Z",
+      "locked_files": [
+        "docs/runbooks/LOCAL_VERIFICATION.md",
+        "README.md"
+      ],
+      "branch": "codex/omni-105-agent-os-loop",
+      "branch_status": "released_by_owner",
+      "pr_status": "released_by_owner"
+    }
+  ]
+}
