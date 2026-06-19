@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-106",
+  "lane_type": "hygiene",
+  "executor": "codex-cli",
+  "tier": "T2",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-106-agent-os-loop",
+  "execution_location": {
+    "mode": "worktree",
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-106-agent-os-loop",
+    "package_install": "not_required",
+    "setup_command": null,
+    "main_checkout_control_only": true,
+    "dependency_policy": {
+      "package_install": "not_required",
+      "reason": "skip_install",
+      "setup_command": null,
+      "ran_install": false
+    }
+  },
+  "branch": "codex/omni-106-agent-os-loop",
+  "base_branch": "main",
+  "commit_sha": null,
+  "pr_url": null,
+  "files_changed": [],
+  "file_scope_lock": [
+    "docs/runbooks/LOCAL_VERIFICATION.md",
+    "README.md"
+  ],
+  "expected_proof_paths": [
+    ".agent-os/proof/OMNI-106/diff-summary.md",
+    ".agent-os/proof/OMNI-106/verification.md"
+  ],
+  "status": "done",
+  "started_at": "2026-06-19T23:26:44.469Z",
+  "heartbeat_at": "2026-06-19T23:51:45.144Z",
+  "closed_at": "2026-06-19T23:51:45.144Z",
+  "blocked_by": [],
+  "preflight_token": ".out/ops/preflight/codex/omni-106-agent-os-loop.json",
+  "created_by": "codex-cli",
+  "truth_check_history": [],
+  "reopen_history": []
+}

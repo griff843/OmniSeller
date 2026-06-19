@@ -50,6 +50,51 @@ pnpm exec agent-os loop --dry-run --issues-file .agent-os/issues.json --label re
 pnpm exec agent-os loop --execute --issues-file .agent-os/issues.json --label ready --limit 1 --skip-install
 ```
 
+Issue queue entries must use concrete file paths. Do not use directory scopes such as
+`docs/`; use the exact file that the lane may change.
+
+README-only lane:
+
+```json
+{
+  "id": "OMNI-README",
+  "title": "Update README guidance",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "hygiene",
+  "file_scope": ["README.md"]
+}
+```
+
+Runbook concrete-file lane:
+
+```json
+{
+  "id": "OMNI-RUNBOOK",
+  "title": "Update local verification runbook",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "hygiene",
+  "file_scope": ["docs/runbooks/LOCAL_VERIFICATION.md"]
+}
+```
+
+Package verification lane:
+
+```json
+{
+  "id": "OMNI-PACKAGE",
+  "title": "Update verification scripts",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "verification",
+  "file_scope": ["package.json"]
+}
+```
+
 After copying lane results back to main, close the lane and confirm the board is clear:
 
 ```bash

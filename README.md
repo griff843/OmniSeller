@@ -132,6 +132,53 @@ For the standard Agent-OS and local build verification flow, see
 
 OMNI-101 validated a README-only Agent-OS worktree dispatch.
 
+## Agent-OS local issue queue examples
+
+Agent-OS issue queue file scopes must name concrete files. Directory scopes such as
+`docs/` are invalid and will fail dry-run validation.
+
+README-only lane:
+
+```json
+{
+  "id": "OMNI-README",
+  "title": "Update README guidance",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "hygiene",
+  "file_scope": ["README.md"]
+}
+```
+
+Runbook lane:
+
+```json
+{
+  "id": "OMNI-RUNBOOK",
+  "title": "Update local verification runbook",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "hygiene",
+  "file_scope": ["docs/runbooks/LOCAL_VERIFICATION.md"]
+}
+```
+
+Package verification lane:
+
+```json
+{
+  "id": "OMNI-PACKAGE",
+  "title": "Update verification scripts",
+  "status": "open",
+  "labels": ["ready"],
+  "tier": "T2",
+  "lane_type": "verification",
+  "file_scope": ["package.json"]
+}
+```
+
 ## Notes
 
 - Shipping works locally without EasyPost credentials, but shipping endpoints remain disabled until `EASYPOST_API_KEY` is set.

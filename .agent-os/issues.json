@@ -1,13 +1,16 @@
 {
   "issues": [
     {
-      "id": "OMNI-105",
-      "title": "Add operational runbook for local verification",
+      "id": "OMNI-106",
+      "title": "Add Agent-OS issue queue examples for OmniSeller",
       "status": "open",
       "labels": ["ready"],
       "tier": "T2",
       "lane_type": "hygiene",
-      "file_scope": ["README.md", "docs/runbooks/LOCAL_VERIFICATION.md"]
+      "file_scope": [
+        "README.md",
+        "docs/runbooks/LOCAL_VERIFICATION.md"
+      ]
     }
   ]
 }
