@@ -1,13 +1,13 @@
 {
   "issues": [
     {
-      "id": "OMNI-104",
-      "title": "Document required environment variables",
+      "id": "OMNI-105",
+      "title": "Add operational runbook for local verification",
       "status": "open",
       "labels": ["ready"],
       "tier": "T2",
       "lane_type": "hygiene",
-      "file_scope": ["README.md", ".env.example"]
+      "file_scope": ["README.md", "docs/"]
     }
   ]
 }
