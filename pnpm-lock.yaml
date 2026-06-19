@@ -8643,7 +8643,7 @@ packages:
     dev: true
 
   file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz(@agent-os/adapters@0.1.0)(@agent-os/core@0.1.0):
-    resolution: {integrity: sha512-e8ycsl/5Lqkk/D53NAC5tgIOgoNGL8RHZtueE4r8njgkCUCi5VwWSNlvFcM5piIAL7cZVs3DQK/9AD9cvRYJiA==, tarball: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz}
+    resolution: {integrity: sha512-FEeZX5shAGV5wzvEGXVYYJ2XtV/YGactHOIb++QGO62K5DUFJkROv0CHc5KTcQWWJa498UuyfKSn3AUZ6mqZnQ==, tarball: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz}
     id: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz
     name: '@agent-os/cli'
     version: 0.1.0
@@ -8658,7 +8658,7 @@ packages:
     dev: true
 
   file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz:
-    resolution: {integrity: sha512-x6KRjlQk9gZTnwFAwzeSQ7ggJoIAyN5xBfSPCQi+EkXsGAg0cePyv1Ta2xyAVAEiiOFtOLJ18Ir4Abf2fcMhWQ==, tarball: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz}
+    resolution: {integrity: sha512-kiYV/51+sS9kXw8bEfLZvJUJMYH7yk08n4d8nME+goX0cMDV0Mi+o9lTFPWkCTKcJxBJwBZshO6Ov1Hfli2M0g==, tarball: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz}
     name: '@agent-os/core'
     version: 0.1.0
     engines: {node: '>=22'}
