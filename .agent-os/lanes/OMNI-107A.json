@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-107A",
+  "lane_type": "hygiene",
+  "executor": "codex-cli",
+  "tier": "T2",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-107a-agent-os-loop",
+  "execution_location": {
+    "mode": "worktree",
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-107a-agent-os-loop",
+    "package_install": "not_required",
+    "setup_command": "pnpm install --frozen-lockfile",
+    "main_checkout_control_only": true,
+    "dependency_policy": {
+      "package_install": "not_required",
+      "reason": "skip_install",
+      "setup_command": "pnpm install --frozen-lockfile",
+      "ran_install": false
+    }
+  },
+  "branch": "codex/omni-107a-agent-os-loop",
+  "base_branch": "main",
+  "commit_sha": null,
+  "pr_url": null,
+  "files_changed": [],
+  "file_scope_lock": [
+    "apps/api/src/inventory/inventory-workflow-state.spec.ts",
+    "apps/api/src/inventory/inventory-workflow-state.ts"
+  ],
+  "expected_proof_paths": [
+    ".agent-os/proof/OMNI-107A/diff-summary.md",
+    ".agent-os/proof/OMNI-107A/verification.md"
+  ],
+  "status": "done",
+  "started_at": "2026-06-21T02:04:52.968Z",
+  "heartbeat_at": "2026-06-21T02:06:52.062Z",
+  "closed_at": "2026-06-21T02:06:52.062Z",
+  "blocked_by": [],
+  "preflight_token": ".out/ops/preflight/codex/omni-107a-agent-os-loop.json",
+  "created_by": "codex-cli",
+  "truth_check_history": [],
+  "reopen_history": []
+}

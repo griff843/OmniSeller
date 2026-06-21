@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "project_name": "OmniSeller",
-  "issue_pattern": "[A-Z][A-Z0-9]*-\\d+",
+  "issue_pattern": "[A-Z][A-Z0-9]*-\\d+[A-Z]?",
   "base_branch": "main",
   "manifest_dir": ".agent-os/lanes",
   "proof_dir": ".agent-os/proof",
