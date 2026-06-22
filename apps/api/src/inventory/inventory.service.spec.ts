@@ -217,7 +217,7 @@ describe('InventoryService', () => {
       inventoryStatus: 'IN_STOCK',
       listingReadiness: 'READY_FOR_AI',
       saleStatus: 'AVAILABLE',
-      sort: 'sku-asc',
+      sort: ' sku-asc ',
     });
 
     expect(mockedPrisma.inventoryItem.findMany).toHaveBeenCalledWith(

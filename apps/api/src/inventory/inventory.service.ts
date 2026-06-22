@@ -389,7 +389,7 @@ export class InventoryService {
   }
 
   private buildListSort(sort?: string): any {
-    switch (sort) {
+    switch (sort?.trim()) {
       case 'sku-asc':
         return [{ sku: 'asc' }];
       case 'sku-desc':
@@ -591,4 +591,3 @@ export class InventoryService {
     };
   }
 }
-
