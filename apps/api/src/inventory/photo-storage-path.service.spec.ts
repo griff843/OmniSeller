@@ -48,6 +48,7 @@ describe('PhotoStoragePathService', () => {
     ['image/webp', 'webp'],
     ['image/heic', 'heic'],
     ['IMAGE/PNG', 'png'],
+    [' image/png ', 'png'],
     ['application/octet-stream', 'jpg'],
   ])('uses content type %s when the filename extension is missing or unsafe', (contentType, extension) => {
     expect(

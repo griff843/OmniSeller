@@ -22,7 +22,7 @@ export class PhotoStoragePathService {
       return fromName;
     }
 
-    switch (contentType.toLowerCase()) {
+    switch (contentType.trim().toLowerCase()) {
       case 'image/png':
         return 'png';
       case 'image/webp':
