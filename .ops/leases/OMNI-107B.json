@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-107B",
+  "branch": "codex/omni-107b-agent-os-loop",
+  "executor": "codex-cli",
+  "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-107b-agent-os-loop",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-107b-agent-os-loop",
+  "execution_location": {
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-107b-agent-os-loop"
+  },
+  "file_scope_lock": [
+    "apps/api/src/inventory/photo-storage-path.service.spec.ts",
+    "apps/api/src/inventory/photo-storage-path.service.ts"
+  ],
+  "heartbeat_at": "2026-06-22T11:43:20.551Z",
+  "expires_at": "2026-06-22T15:43:20.551Z",
+  "owner": {
+    "user": "griff843",
+    "host": "DESKTOP-GP6RM0V",
+    "pid": 1714098,
+    "session_id": "DESKTOP-GP6RM0V:1714098"
+  },
+  "status": "released",
+  "reclaim_history": [
+    {
+      "reclaimed_at": "2026-06-22T11:44:41.638Z",
+      "reclaimed_by": "agent-os",
+      "reason": "released: complete",
+      "previous_owner": {
+        "user": "griff843",
+        "host": "DESKTOP-GP6RM0V",
+        "pid": 1714098,
+        "session_id": "DESKTOP-GP6RM0V:1714098"
+      },
+      "previous_status": "active",
+      "last_heartbeat_at": "2026-06-22T11:43:20.551Z",
+      "locked_files": [
+        "apps/api/src/inventory/photo-storage-path.service.spec.ts",
+        "apps/api/src/inventory/photo-storage-path.service.ts"
+      ],
+      "branch": "codex/omni-107b-agent-os-loop",
+      "branch_status": "released_by_owner",
+      "pr_status": "released_by_owner"
+    }
+  ]
+}
