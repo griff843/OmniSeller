@@ -233,4 +233,106 @@ describe('ListingAiService', () => {
     );
     expect(result.itemSpecifics).toEqual({ Brand: 'Canon' });
   });
+
+  it('drops empty manual draft specifics while preserving trimmed meaningful values', async () => {
+    mockedPrisma.listingDraft.upsert.mockResolvedValue({
+      id: 'draft_1',
+      inventoryItemId: 'item_1',
+      marketplace: 'ebay',
+      title: 'Draft title',
+      description: 'Draft description',
+      category: 'Cameras',
+      priceCents: 12900,
+      itemSpecifics: {
+        Brand: 'Canon',
+        Model: 'AE-1',
+        'MPN Number': '0',
+      },
+      sourceSuggestionId: null,
+      createdAt: new Date('2026-03-11T16:00:00.000Z'),
+      updatedAt: new Date('2026-03-11T16:00:00.000Z'),
+    });
+    mockWorkflowRefresh({
+      listingDraft: {
+        title: 'Draft title',
+        description: 'Draft description',
+        category: 'Cameras',
+        priceCents: 12900,
+      },
+    });
+
+    const result = (await service.updateDraft('item_1', {
+      itemSpecifics: {
+        ' Brand ': ' Canon ',
+        ' Model ': ' AE-1 ',
+        ' MPN Number ': ' 0 ',
+        ' ': 'ignored blank key',
+        Color: '   ',
+      },
+    })) as { itemSpecifics: Record<string, string> };
+
+    expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          itemSpecifics: {
+            Brand: 'Canon',
+            Model: 'AE-1',
+            'MPN Number': '0',
+          },
+        }),
+        create: expect.objectContaining({
+          itemSpecifics: {
+            Brand: 'Canon',
+            Model: 'AE-1',
+            'MPN Number': '0',
+          },
+        }),
+      }),
+    );
+    expect(result.itemSpecifics).toEqual({
+      Brand: 'Canon',
+      Model: 'AE-1',
+      'MPN Number': '0',
+    });
+  });
+
+  it('does not overwrite item specifics when manual draft specifics are omitted', async () => {
+    mockedPrisma.listingDraft.upsert.mockResolvedValue({
+      id: 'draft_1',
+      inventoryItemId: 'item_1',
+      marketplace: 'ebay',
+      title: 'Updated title',
+      description: 'Draft description',
+      category: 'Cameras',
+      priceCents: 12900,
+      itemSpecifics: { Brand: 'Canon' },
+      sourceSuggestionId: null,
+      createdAt: new Date('2026-03-11T16:00:00.000Z'),
+      updatedAt: new Date('2026-03-11T16:00:00.000Z'),
+    });
+    mockWorkflowRefresh({
+      listingDraft: {
+        title: 'Updated title',
+        description: 'Draft description',
+        category: 'Cameras',
+        priceCents: 12900,
+      },
+    });
+
+    const result = (await service.updateDraft('item_1', {
+      title: 'Updated title',
+    })) as { itemSpecifics: Record<string, string> };
+
+    expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.not.objectContaining({
+          itemSpecifics: expect.anything(),
+        }),
+        create: expect.objectContaining({
+          itemSpecifics: undefined,
+        }),
+      }),
+    );
+    expect(result.itemSpecifics).toEqual({ Brand: 'Canon' });
+  });
 });
