@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "issue_id": "OMNI-108B",
+  "branch": "codex/omni-108b-agent-os-loop",
+  "executor": "codex-cli",
+  "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-108b-agent-os-loop",
+  "worktree_path": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-108b-agent-os-loop",
+  "execution_location": {
+    "cwd": "/home/griff843/code/OmniSeller/.out/worktrees/codex__omni-108b-agent-os-loop"
+  },
+  "file_scope_lock": [
+    "apps/api/src/inventory/inventory-workflow-state.spec.ts",
+    "apps/api/src/inventory/inventory-workflow-state.ts"
+  ],
+  "heartbeat_at": "2026-06-22T12:55:45.294Z",
+  "expires_at": "2026-06-22T16:55:45.294Z",
+  "owner": {
+    "user": "griff843",
+    "host": "DESKTOP-GP6RM0V",
+    "pid": 1898245,
+    "session_id": "DESKTOP-GP6RM0V:1898245"
+  },
+  "status": "released",
+  "reclaim_history": [
+    {
+      "reclaimed_at": "2026-06-22T12:57:15.101Z",
+      "reclaimed_by": "agent-os",
+      "reason": "released: complete",
+      "previous_owner": {
+        "user": "griff843",
+        "host": "DESKTOP-GP6RM0V",
+        "pid": 1898245,
+        "session_id": "DESKTOP-GP6RM0V:1898245"
+      },
+      "previous_status": "active",
+      "last_heartbeat_at": "2026-06-22T12:55:45.294Z",
+      "locked_files": [
+        "apps/api/src/inventory/inventory-workflow-state.spec.ts",
+        "apps/api/src/inventory/inventory-workflow-state.ts"
+      ],
+      "branch": "codex/omni-108b-agent-os-loop",
+      "branch_status": "released_by_owner",
+      "pr_status": "released_by_owner"
+    }
+  ]
+}

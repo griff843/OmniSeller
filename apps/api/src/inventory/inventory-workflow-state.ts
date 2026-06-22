@@ -70,6 +70,10 @@ export function determineSaleStatus(currentStatus: SaleLifecycleStatusValue, has
 }
 
 export function buildReadinessBlockers(snapshot: InventoryWorkflowSnapshot): string[] {
+  if (snapshot.hasActiveListing) {
+    return [];
+  }
+
   const blockers: string[] = [];
 
   if (!snapshot.title?.trim()) {

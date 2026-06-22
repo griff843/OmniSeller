@@ -102,5 +102,19 @@ describe('inventory workflow state helpers', () => {
         }),
       ).toEqual([]);
     });
+
+    it('omits blockers for active listings even when intake or draft data is incomplete', () => {
+      const snapshot = {
+        ...baseSnapshot,
+        title: null,
+        condition: null,
+        readyPhotoCount: 0,
+        hasPublishableDraft: false,
+        hasActiveListing: true,
+      };
+
+      expect(determineListingReadiness(snapshot)).toBe('LISTED');
+      expect(buildReadinessBlockers(snapshot)).toEqual([]);
+    });
   });
 });
