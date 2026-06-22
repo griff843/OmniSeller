@@ -8658,7 +8658,7 @@ packages:
     dev: true
 
   file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz:
-    resolution: {integrity: sha512-kiYV/51+sS9kXw8bEfLZvJUJMYH7yk08n4d8nME+goX0cMDV0Mi+o9lTFPWkCTKcJxBJwBZshO6Ov1Hfli2M0g==, tarball: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz}
+    resolution: {integrity: sha512-b83WiW7Ui+n6LUbbvj4t7WqZrCl1WwjRlvfEgX35fmJKN1IJxaqwGcXDnbZtinu7ACUmwAOcYFl5kK4Z39gDjg==, tarball: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz}
     name: '@agent-os/core'
     version: 0.1.0
     engines: {node: '>=22'}
