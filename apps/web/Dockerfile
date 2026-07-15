@@ -7,12 +7,13 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter web build
 
 FROM node:20-bookworm-slim AS runtime
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /workspace/apps/web/.next/standalone ./
 COPY --from=build /workspace/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build /workspace/apps/web/public ./apps/web/public
 COPY --from=build /workspace/scripts/validate-runtime-env.cjs ./scripts/validate-runtime-env.cjs
 USER node
 EXPOSE 3000
