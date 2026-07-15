@@ -21,8 +21,10 @@ jest.mock('@omniseller/db', () => ({
       findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   },
 }));
@@ -145,9 +147,7 @@ describe('ShippingService', () => {
       id: 'ord_ebay',
       marketplaceAccount: { kind: 'ebay', userId: 'dev-user' },
     } as any);
-    mockedPrisma.shipment.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
+    mockedPrisma.shipment.findFirst.mockResolvedValueOnce(null);
     mockedPrisma.shipment.create.mockResolvedValue({
       id: 'shipment_pending',
       metadata: null,
@@ -234,9 +234,7 @@ describe('ShippingService', () => {
       id: 'ord_1',
       marketplaceAccount: { kind: 'ebay', userId: 'dev-user' },
     } as any);
-    mockedPrisma.shipment.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
+    mockedPrisma.shipment.findFirst.mockResolvedValueOnce(null);
     mockedPrisma.shipment.create.mockResolvedValue({
       id: 'shipment_pending',
       metadata: null,

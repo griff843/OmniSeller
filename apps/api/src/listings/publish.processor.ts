@@ -10,6 +10,7 @@ import {
 } from '../inventory/inventory-workflow-state';
 import { getPublishStateMessage } from './publish-state';
 import { MARKETPLACE_PUBLISH_PROVIDER, MarketplacePublishProvider } from './publishing/marketplace-publish.contract';
+import { decryptProviderToken } from '../common/provider-token-vault';
 
 const PUBLISH_QUEUE = 'publishListing';
 
@@ -91,7 +92,12 @@ export class PublishProcessor extends WorkerHost {
       },
       orderBy: { createdAt: 'desc' },
     } as any);
-    const availability: any = this.publishProvider.getAvailability(marketplace, marketplaceAccount);
+    const decryptedAccount = marketplaceAccount ? {
+      ...marketplaceAccount,
+      accessToken: decryptProviderToken(marketplaceAccount.accessToken),
+      refreshToken: decryptProviderToken(marketplaceAccount.refreshToken),
+    } : null;
+    const availability: any = this.publishProvider.getAvailability(marketplace, decryptedAccount);
 
     if (!availability.available) {
       const unavailableReason = availability.reason;

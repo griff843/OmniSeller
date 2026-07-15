@@ -27,9 +27,9 @@ import { OrdersModule } from './orders/orders.module';
         redact: {
           paths: [
             'req.headers.authorization',
-            'req.headers.x-omniseller-internal-secret',
+            "req.headers['x-omniseller-internal-secret']",
             'req.headers.cookie',
-            'res.headers.set-cookie',
+            "res.headers['set-cookie']",
           ],
           censor: '[REDACTED]',
         },

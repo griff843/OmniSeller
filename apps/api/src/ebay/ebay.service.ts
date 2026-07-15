@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MarketplaceAccount, prisma } from '@omniseller/db';
 import fetch from 'node-fetch';
 import { resolveUserId } from '../common/user-context';
+import { decryptProviderToken, encryptProviderToken } from '../common/provider-token-vault';
 
 type EbayTokenResponse = {
   access_token: string;
@@ -63,22 +64,25 @@ export class EbayService {
     body.append('redirect_uri', redirectUri);
 
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let response;
+    try {
+      response = await fetch(tokenUrl, { method: 'POST', headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: controller.signal as any });
+    } catch {
+      throw new ServiceUnavailableException('eBay token exchange is temporarily unavailable.');
+    } finally { clearTimeout(timeout); }
 
     if (!response.ok) {
-      throw new InternalServerErrorException(`eBay token exchange failed: ${response.status} ${await response.text()}`);
+      throw new InternalServerErrorException(`eBay token exchange failed with provider status ${response.status}.`);
     }
 
     const token = (await response.json()) as EbayTokenResponse;
     const existing = await this.findLatestEbayAccount(ownerId);
     const expiresAt = token.expires_in ? new Date(Date.now() + token.expires_in * 1000) : null;
+    const encryptedAccess = encryptProviderToken(token.access_token);
+    const retainedRefresh = token.refresh_token ?? decryptProviderToken(existing?.refreshToken);
+    const encryptedRefresh = encryptProviderToken(retainedRefresh);
 
     const account = existing
       ? await prisma.marketplaceAccount.update({
@@ -86,8 +90,9 @@ export class EbayService {
           data: {
             siteId: this.configService.get<string>('EBAY_SITE_ID') ?? existing.siteId ?? 'EBAY-US',
             nickname: existing.nickname ?? 'eBay',
-            accessToken: token.access_token,
-            refreshToken: token.refresh_token ?? existing.refreshToken,
+            accessToken: encryptedAccess.value,
+            refreshToken: encryptedRefresh.value,
+            tokenKeyId: encryptedAccess.keyId ?? encryptedRefresh.keyId,
             expiresAt,
           },
         })
@@ -97,8 +102,9 @@ export class EbayService {
             kind: 'ebay',
             siteId: this.configService.get<string>('EBAY_SITE_ID') ?? 'EBAY-US',
             nickname: 'eBay',
-            accessToken: token.access_token,
-            refreshToken: token.refresh_token ?? null,
+            accessToken: encryptedAccess.value,
+            refreshToken: encryptedRefresh.value,
+            tokenKeyId: encryptedAccess.keyId ?? encryptedRefresh.keyId,
             expiresAt,
           },
         });

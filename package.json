@@ -14,17 +14,22 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm db:generate && pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:e2e": "playwright test",
+    "load:smoke": "node scripts/load-smoke.mjs",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "db:generate": "pnpm --filter db generate",
     "db:migrate": "pnpm --filter db migrate",
     "db:migrate:deploy": "pnpm --filter db migrate:deploy",
     "db:migrate:status": "pnpm --filter db migrate:status",
     "db:seed": "pnpm --filter db seed",
+    "db:user": "pnpm --filter db user --",
     "db:studio": "pnpm --filter db studio",
     "db:push": "pnpm --filter db push",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.49.1",
     "concurrently": "^8.2.2",
     "prettier": "^3.2.5",
     "turbo": "^1.12.4"

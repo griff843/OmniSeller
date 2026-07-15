@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { logout } from '@/app/actions/auth';
 
 const navigation = [
   { href: '/', label: 'Dashboard' },
@@ -59,6 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
               })}
+              <form action={logout}><button type="submit" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Sign out</button></form>
             </div>
           </nav>
         </div>

@@ -13,6 +13,7 @@ import { buildReadinessBlockers, isPublishReady } from '../inventory/inventory-w
 import { getPublishStateMessage, isPublishInFlight } from './publish-state';
 import { MARKETPLACE_PUBLISH_PROVIDER, MarketplacePublishProvider } from './publishing/marketplace-publish.contract';
 import { ownsRecord, resolveUserId } from '../common/user-context';
+import { decryptProviderToken } from '../common/provider-token-vault';
 
 const PUBLISH_QUEUE = 'publishListing';
 
@@ -97,7 +98,11 @@ export class ListingsService {
       },
       orderBy: { updatedAt: 'desc' },
     } as any);
-    const availability: any = this.publishProvider.getAvailability(marketplace, marketplaceAccount);
+    const availability: any = this.publishProvider.getAvailability(marketplace, marketplaceAccount ? {
+      ...marketplaceAccount,
+      accessToken: decryptProviderToken(marketplaceAccount.accessToken),
+      refreshToken: decryptProviderToken(marketplaceAccount.refreshToken),
+    } : null);
 
     if (!availability.available) {
       const unavailableReason = availability.reason;
@@ -115,18 +120,20 @@ export class ListingsService {
       throw new ServiceUnavailableException(publishState.message);
     }
 
-    await this.publishQueue.add('publish', { inventoryItemId, marketplace });
-
-    const publishState = await this.updatePublishState(inventoryItemId, {
-      publishStatus: 'QUEUED',
-      publishMarketplace: marketplace,
-      publishRequestedAt: new Date(),
-      publishQueuedAt: new Date(),
-      publishStartedAt: null,
-      publishedAt: null,
-      publishFailedAt: null,
-      publishError: null,
+    const queuedAt = new Date();
+    const claim = await prisma.inventoryItem.updateMany({
+      where: { id: inventoryItemId, publishStatus: { notIn: ['QUEUED', 'PROCESSING', 'PUBLISHED'] } },
+      data: { publishStatus: 'QUEUED', publishMarketplace: marketplace, publishRequestedAt: queuedAt, publishQueuedAt: queuedAt, publishStartedAt: null, publishedAt: null, publishFailedAt: null, publishError: null },
     });
+    if (claim.count !== 1) throw new ConflictException('This item is already queued, processing, or published.');
+    try {
+      await this.publishQueue.add('publish', { inventoryItemId, marketplace }, { jobId: `publish:${inventoryItemId}:${marketplace}`, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    } catch (error) {
+      await this.updatePublishState(inventoryItemId, { publishStatus: 'FAILED', publishMarketplace: marketplace, publishFailedAt: new Date(), publishError: 'Unable to enqueue publication safely.' });
+      throw error;
+    }
+
+    const publishState = { status: 'QUEUED', marketplace, requestedAt: queuedAt, queuedAt, startedAt: null, publishedAt: null, failedAt: null, error: null, message: getPublishStateMessage({ status: 'QUEUED', marketplace, requestedAt: queuedAt, queuedAt }) };
 
     return {
       status: publishState.status,

@@ -1,6 +1,6 @@
 import { AuthError } from 'next-auth';
 import { redirect } from 'next/navigation';
-import { auth, signInWithCredentials } from '@/lib/auth';
+import { auth, signInWithAuth0, signInWithCredentials } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +30,11 @@ async function login(formData: FormData) {
   }
 }
 
+async function loginWithAuth0(formData: FormData) {
+  'use server';
+  await signInWithAuth0(safeCallbackUrl(String(formData.get('callbackUrl') ?? '/') || '/'));
+}
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -48,7 +53,9 @@ export default async function LoginPage({
       <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">OmniSeller</p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Sign in</h1>
-        <p className="mt-3 text-sm text-slate-600">Use an email to create or resume a local OmniSeller workspace.</p>
+        <p className="mt-3 text-sm text-slate-600">
+          {process.env.NODE_ENV === 'production' ? 'Continue through the invitation-only seller identity provider.' : 'Use Auth0 when configured, or a development-only local identity.'}
+        </p>
 
         {searchParams?.error ? (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -56,7 +63,16 @@ export default async function LoginPage({
           </div>
         ) : null}
 
-        <form action={login} className="mt-6 space-y-4">
+        {process.env.AUTH0_ISSUER ? (
+          <form action={loginWithAuth0} className="mt-6">
+            <input type="hidden" name="callbackUrl" value={callbackUrl} />
+            <button type="submit" className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white">
+              Continue with Auth0
+            </button>
+          </form>
+        ) : null}
+
+        {process.env.NODE_ENV !== 'production' ? <form action={login} className="mt-6 space-y-4">
           <input type="hidden" name="callbackUrl" value={callbackUrl} />
           <label className="block space-y-2 text-sm font-medium text-slate-700">
             <span>Email</span>
@@ -83,7 +99,7 @@ export default async function LoginPage({
           >
             Continue
           </button>
-        </form>
+        </form> : null}
       </section>
     </main>
   );

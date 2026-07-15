@@ -13,6 +13,7 @@ jest.mock('@omniseller/db', () => ({
     inventoryItem: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     marketplaceAccount: {
       findFirst: jest.fn(),
@@ -57,6 +58,7 @@ describe('ListingsService', () => {
       publishFailedAt: new Date('2026-03-12T15:00:00.000Z'),
       publishError: 'Upload at least one ready photo to unlock AI and listing workflows.',
     });
+    prisma.inventoryItem.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(service.enqueuePublish('item_1', 'ebay', 'dev-user')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.inventoryItem.update).toHaveBeenCalledWith(
@@ -153,7 +155,7 @@ describe('ListingsService', () => {
 
     const result = (await service.enqueuePublish('item_1', 'ebay', 'dev-user')) as { status: string };
 
-    expect(add).toHaveBeenCalledWith('publish', { inventoryItemId: 'item_1', marketplace: 'ebay' });
+    expect(add).toHaveBeenCalledWith('publish', { inventoryItemId: 'item_1', marketplace: 'ebay' }, expect.objectContaining({ jobId: 'publish:item_1:ebay' }));
     expect(result.status).toBe('QUEUED');
   });
 

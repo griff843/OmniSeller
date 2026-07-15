@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -145,11 +146,14 @@ export class ShippingService {
       return existing;
     }
 
-    const pendingShipment = await this.createOrResetPendingShipment(
+    const pendingShipment = await this.claimPendingShipment(
       dto.orderId,
       dto.providerShipmentId,
       dto.rateId,
     );
+    if (this.isPurchasedStatus(pendingShipment.status)) {
+      return pendingShipment;
+    }
 
     let bought: Awaited<ReturnType<EasyPostClient['buyShipment']>>;
 
@@ -308,7 +312,7 @@ export class ShippingService {
     });
 
     if (!shipment || !shipment.order || !ownsRecord(shipment.order.marketplaceAccount?.userId, ownerId)) {
-      throw new BadRequestException(`Shipment ${shipmentId} not found`);
+      throw new NotFoundException(`Shipment ${shipmentId} not found`);
     }
 
     if (!shipment.providerShipmentId) {
@@ -364,50 +368,30 @@ export class ShippingService {
     });
   }
 
-  private async createOrResetPendingShipment(
+  private async claimPendingShipment(
     orderId: string,
     providerShipmentId: string,
     rateId: string,
   ) {
-    const existing = await prisma.shipment.findFirst({
-      where: {
-        orderId,
-        providerShipmentId,
-        providerRateId: rateId,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (existing) {
-      return prisma.shipment.update({
-        where: { id: existing.id },
-        data: {
-          status: ShipmentStatus.PENDING,
-          metadata: this.mergeMetadata(existing.metadata, {
-            purchase: {
-              state: 'IN_PROGRESS',
-              requestedAt: new Date().toISOString(),
-            },
-          }),
-        },
+    const idempotencyKey = `${providerShipmentId}:${rateId}`;
+    try {
+      return await prisma.shipment.create({
+        data: { orderId, provider: SHIPPING_PROVIDER, status: ShipmentStatus.PENDING, providerShipmentId, providerRateId: rateId, idempotencyKey, metadata: { purchase: { state: 'IN_PROGRESS', requestedAt: new Date().toISOString() } } },
       });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      const existing = await prisma.shipment.findUnique({ where: { orderId_idempotencyKey: { orderId, idempotencyKey } } });
+      if (!existing) throw error;
+      if (this.isPurchasedStatus(existing.status)) return existing;
+      if (existing.status === ShipmentStatus.PENDING) throw new BadRequestException('An identical label purchase is already in progress.');
+      const claim = await prisma.shipment.updateMany({ where: { id: existing.id, status: ShipmentStatus.ERROR }, data: { status: ShipmentStatus.PENDING, metadata: this.mergeMetadata(existing.metadata, { purchase: { state: 'IN_PROGRESS', requestedAt: new Date().toISOString() } }) } });
+      if (claim.count !== 1) throw new BadRequestException('An identical label purchase is already in progress.');
+      return prisma.shipment.findUniqueOrThrow({ where: { id: existing.id } });
     }
+  }
 
-    return prisma.shipment.create({
-      data: {
-        orderId,
-        provider: SHIPPING_PROVIDER,
-        status: ShipmentStatus.PENDING,
-        providerShipmentId,
-        providerRateId: rateId,
-        metadata: {
-          purchase: {
-            state: 'IN_PROGRESS',
-            requestedAt: new Date().toISOString(),
-          },
-        },
-      },
-    });
+  private isPurchasedStatus(status: ShipmentStatus): boolean {
+    return status === ShipmentStatus.LABEL_PURCHASED || status === ShipmentStatus.SYNC_QUEUED || status === ShipmentStatus.SYNCED_TO_MARKETPLACE;
   }
 
   private async requireOrderForUser(orderId: string, userId: string) {
@@ -419,7 +403,7 @@ export class ShippingService {
     });
 
     if (!order || !ownsRecord(order.marketplaceAccount?.userId, userId)) {
-      throw new BadRequestException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Order ${orderId} not found`);
     }
 
     return order;

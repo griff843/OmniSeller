@@ -72,7 +72,7 @@ export class EasyPostClient {
       );
     }
 
-    this.client = new EasyPost(apiKey);
+    this.client = new EasyPost(apiKey, { timeout: 15_000 });
     return this.client;
   }
 

@@ -6,6 +6,10 @@ import { timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { INTERNAL_SECRET_HEADER } from './common/user-context';
+import { USER_ID_HEADER } from './common/user-context';
+import Redis from 'ioredis';
+import { consumeRateLimit, matchingRateLimit } from './common/distributed-rate-limiter';
+import { prisma } from '@omniseller/db';
 
 function secretsMatch(actual: string | undefined, expected: string): boolean {
   if (!actual) return false;
@@ -19,6 +23,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+  const express = app.getHttpAdapter().getInstance();
+  express.disable('x-powered-by');
+  const trustedProxyHops = Number.parseInt(process.env.OMNISELLER_TRUST_PROXY_HOPS ?? '0', 10);
+  express.set('trust proxy', Number.isFinite(trustedProxyHops) && trustedProxyHops > 0 ? trustedProxyHops : false);
 
   // Use pino logger
   app.useLogger(app.get(Logger));
@@ -28,7 +36,8 @@ async function bootstrap() {
     throw new Error('OMNISELLER_API_INTERNAL_SECRET is required');
   }
 
-  app.use((request: Request, response: Response, next: NextFunction) => {
+  app.use(async (request: Request, response: Response, next: NextFunction) => {
+    if (request.path === '/health/live' || request.path === '/health/ready') return next();
     const suppliedSecret = request.header(INTERNAL_SECRET_HEADER);
 
     if (!secretsMatch(suppliedSecret, internalSecret)) {
@@ -36,7 +45,40 @@ async function bootstrap() {
       return;
     }
 
-    next();
+    const userId = request.header(USER_ID_HEADER)?.trim();
+    if (!userId) return response.status(401).json({ statusCode: 401, message: 'Unauthorized' });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { disabledAt: true } });
+    if (!user || user.disabledAt) return response.status(401).json({ statusCode: 401, message: 'Unauthorized' });
+    return next();
+  });
+
+  const redis = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number.parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || undefined,
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+  });
+  app.use(async (request: Request, response: Response, next: NextFunction) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (process.env.NODE_ENV === 'production') response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+    const rule = matchingRateLimit(request.path, request.method);
+    if (!rule) return next();
+    const actor = request.header(USER_ID_HEADER) ?? request.ip;
+    try {
+      if (redis.status === 'wait') await redis.connect();
+      const result = await consumeRateLimit(redis, `rate:${rule.id}:${actor}`, rule);
+      response.setHeader('RateLimit-Limit', String(rule.limit));
+      response.setHeader('RateLimit-Remaining', String(result.remaining));
+      if (!result.allowed) return response.status(429).json({ statusCode: 429, message: 'Too many requests' });
+      return next();
+    } catch {
+      if (process.env.NODE_ENV === 'production') return response.status(503).json({ statusCode: 503, message: 'Rate-limit service unavailable' });
+      return next();
+    }
   });
 
   const configuredOrigins = (process.env.OMNISELLER_WEB_ORIGIN ?? '')

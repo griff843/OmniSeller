@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { MarketplaceAccount, Prisma, ShipmentStatus, prisma } from '@omniseller/db';
 import fetch from 'node-fetch';
+import { decryptProviderToken, encryptProviderToken } from '../common/provider-token-vault';
 
 @Injectable()
 export class EbayFulfillmentSyncService {
@@ -70,9 +71,11 @@ export class EbayFulfillmentSyncService {
     const accessToken = await this.getValidEbayAccessToken(marketplaceAccount);
     const baseUrl = this.configService.get<string>('EBAY_API_BASE') ?? 'https://api.ebay.com';
 
-    const response = await fetch(
-      `${baseUrl}/sell/fulfillment/v1/order/${shipment.order.marketplaceOrderId}/shipping_fulfillment`,
-      {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/sell/fulfillment/v1/order/${shipment.order.marketplaceOrderId}/shipping_fulfillment`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -84,11 +87,15 @@ export class EbayFulfillmentSyncService {
           shippingCarrierCode: this.normalizeCarrierCode(shipment.carrier),
           trackingNumber: shipment.trackingCode,
         }),
-      },
-    );
+        signal: controller.signal as any,
+      });
+    } catch {
+      throw new InternalServerErrorException('eBay fulfillment synchronization timed out or was unavailable.');
+    } finally { clearTimeout(timeout); }
 
     if (!response.ok) {
       const body = await response.text();
+      const safeProviderMessage = this.safeProviderError(body);
 
       await prisma.shipment.update({
         where: { id: shipmentId },
@@ -98,7 +105,7 @@ export class EbayFulfillmentSyncService {
             marketplaceSync: {
               state: 'FAILED',
               status: response.status,
-              body,
+              message: safeProviderMessage,
               failedAt: new Date().toISOString(),
               recoverable: true,
             },
@@ -107,7 +114,7 @@ export class EbayFulfillmentSyncService {
               message: `eBay fulfillment sync failed with status ${response.status}`,
               recordedAt: new Date().toISOString(),
               recoverable: true,
-              details: body,
+              details: safeProviderMessage,
             },
           }),
         },
@@ -152,23 +159,34 @@ export class EbayFulfillmentSyncService {
     }
   }
 
+  private safeProviderError(body: string): string {
+    try {
+      const parsed = JSON.parse(body) as { errors?: Array<{ errorId?: number; domain?: string; category?: string; message?: string }> };
+      return (parsed.errors ?? []).slice(0, 5).map((error) => [error.errorId, error.domain, error.category, error.message].filter(Boolean).join(':')).join(' | ').slice(0, 1000) || 'eBay rejected fulfillment synchronization.';
+    } catch { return 'eBay rejected fulfillment synchronization.'; }
+  }
+
   private async getValidEbayAccessToken(account: MarketplaceAccount): Promise<string> {
     const expiresAt = account.expiresAt ? new Date(account.expiresAt) : null;
 
-    if (account.accessToken && expiresAt && expiresAt.getTime() > Date.now() + 60_000) {
-      return account.accessToken;
+    const accessToken = decryptProviderToken(account.accessToken);
+    if (accessToken && expiresAt && expiresAt.getTime() > Date.now() + 60_000) {
+      return accessToken;
     }
 
-    if (!account.refreshToken) {
+    const refreshToken = decryptProviderToken(account.refreshToken);
+    if (!refreshToken) {
       throw new BadRequestException(`Marketplace account ${account.id} is missing refreshToken`);
     }
 
-    const refreshed = await this.refreshEbayToken(account.refreshToken);
+    const refreshed = await this.refreshEbayToken(refreshToken);
+    const encryptedAccess = encryptProviderToken(refreshed.accessToken);
 
     await prisma.marketplaceAccount.update({
       where: { id: account.id },
       data: {
-        accessToken: refreshed.accessToken,
+        accessToken: encryptedAccess.value,
+        tokenKeyId: encryptedAccess.keyId,
         expiresAt: refreshed.expiresAt,
       },
     });
