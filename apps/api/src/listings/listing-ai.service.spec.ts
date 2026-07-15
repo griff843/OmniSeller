@@ -299,7 +299,7 @@ describe('ListingAiService', () => {
         ' ': 'ignored blank key',
         Color: '   ',
       },
-    })) as { itemSpecifics: Record<string, string> };
+    }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -351,7 +351,7 @@ describe('ListingAiService', () => {
 
     const result = (await service.updateDraft('item_1', {
       title: 'Updated title',
-    })) as { itemSpecifics: Record<string, string> };
+    }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({

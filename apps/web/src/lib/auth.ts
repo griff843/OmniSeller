@@ -67,7 +67,10 @@ export const authConfig: NextAuthConfig = {
       return session;
     },
   },
-  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? 'local-development-only-omniseller-secret',
+  secret:
+    process.env.AUTH_SECRET ??
+    process.env.NEXTAUTH_SECRET ??
+    (process.env.NODE_ENV === 'production' ? undefined : 'local-development-only-omniseller-secret'),
   trustHost: true,
 };
 

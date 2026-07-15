@@ -442,7 +442,7 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
           <p className="text-lg font-semibold text-slate-950">Drop product photos here</p>
           <p className="mt-2 text-sm text-slate-600">Upload multiple originals at once, or use the file picker for a batch.</p>
           <div className="mt-5 flex justify-center">
-            <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInputChange} />
+            <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={onInputChange} />
             <Button onClick={() => inputRef.current?.click()}>Select images</Button>
           </div>
         </div>
@@ -524,4 +524,3 @@ export function PhotoStudio({ initialItem }: { initialItem: InventoryItemDetail 
     </div>
   );
 }
-

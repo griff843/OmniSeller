@@ -34,23 +34,21 @@ describe('PhotoStoragePathService', () => {
     ).toBe('inventory/item/item_1/photos/photo_1/original.jpg');
   });
 
-  it('prefers a clean filename extension and lowercases it', () => {
+  it('uses the validated content type rather than trusting the filename extension', () => {
     expect(
       buildKey({
         originalFileName: 'FRONT.PNG',
         contentType: 'image/jpeg',
       }),
-    ).toBe('inventory/sku-123/item_1/photos/photo_1/original.png');
+    ).toBe('inventory/sku-123/item_1/photos/photo_1/original.jpg');
   });
 
   it.each([
     ['image/png', 'png'],
     ['image/webp', 'webp'],
-    ['image/heic', 'heic'],
     ['IMAGE/PNG', 'png'],
     [' image/png ', 'png'],
-    ['application/octet-stream', 'jpg'],
-  ])('uses content type %s when the filename extension is missing or unsafe', (contentType, extension) => {
+  ])('uses content type %s for the stored extension', (contentType, extension) => {
     expect(
       buildKey({
         originalFileName: 'front-view.',
@@ -59,11 +57,11 @@ describe('PhotoStoragePathService', () => {
     ).toBe(`inventory/sku-123/item_1/photos/photo_1/original.${extension}`);
   });
 
-  it('falls back to jpg when filename extension contains unsafe characters', () => {
+  it('falls back to jpg for unknown content types', () => {
     expect(
       buildKey({
         originalFileName: 'front.jp@g',
-        contentType: 'image/jpeg',
+        contentType: 'application/octet-stream',
       }),
     ).toBe('inventory/sku-123/item_1/photos/photo_1/original.jpg');
   });

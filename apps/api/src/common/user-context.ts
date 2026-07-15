@@ -2,6 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 
 export const DEV_USER_ID = 'dev-user';
 export const USER_ID_HEADER = 'x-omniseller-user-id';
+export const INTERNAL_SECRET_HEADER = 'x-omniseller-internal-secret';
 
 export function resolveUserId(userId?: string | string[] | null): string {
   const value = Array.isArray(userId) ? userId[0] : userId;

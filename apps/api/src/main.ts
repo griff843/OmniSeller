@@ -2,7 +2,18 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
+import { timingSafeEqual } from 'crypto';
+import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { INTERNAL_SECRET_HEADER } from './common/user-context';
+
+function secretsMatch(actual: string | undefined, expected: string): boolean {
+  if (!actual) return false;
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -11,6 +22,22 @@ async function bootstrap() {
 
   // Use pino logger
   app.useLogger(app.get(Logger));
+
+  const internalSecret = process.env.OMNISELLER_API_INTERNAL_SECRET;
+  if (!internalSecret) {
+    throw new Error('OMNISELLER_API_INTERNAL_SECRET is required');
+  }
+
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const suppliedSecret = request.header(INTERNAL_SECRET_HEADER);
+
+    if (!secretsMatch(suppliedSecret, internalSecret)) {
+      response.status(401).json({ statusCode: 401, message: 'Unauthorized' });
+      return;
+    }
+
+    next();
+  });
 
   // Enable CORS for localhost:3000
   app.enableCors({
