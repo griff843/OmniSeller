@@ -25,9 +25,7 @@ const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   transpilePackages: ['@omniseller/ui', '@omniseller/db'],
-  experimental: {
-    serverComponentsExternalPackages: ['@prisma/client'],
-  },
+  serverExternalPackages: ['@prisma/client'],
   async headers() {
     const production = process.env.NODE_ENV === 'production';
     const auth0Origin = process.env.AUTH0_ISSUER ? new URL(process.env.AUTH0_ISSUER).origin : '';

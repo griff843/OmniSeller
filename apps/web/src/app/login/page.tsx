@@ -35,11 +35,12 @@ async function loginWithAuth0(formData: FormData) {
   await signInWithAuth0(safeCallbackUrl(String(formData.get('callbackUrl') ?? '/') || '/'));
 }
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams?: { callbackUrl?: string; error?: string };
-}) {
+export default async function LoginPage(
+  props: {
+    searchParams?: Promise<{ callbackUrl?: string; error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await auth();
 
   if (session?.user) {

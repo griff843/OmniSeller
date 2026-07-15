@@ -2,7 +2,8 @@ import { API_BASE_URL, internalApiHeaders, proxyApi } from '@/lib/api-base';
 import { requireUser } from '@/lib/requireUser';
 import { deleteStoredObject } from '@/lib/storage';
 
-export async function DELETE(_: Request, { params }: { params: { id: string; photoId: string } }) {
+export async function DELETE(_: Request, props: { params: Promise<{ id: string; photoId: string }> }) {
+  const params = await props.params;
   const user = await requireUser();
   const itemResponse = await fetch(`${API_BASE_URL}/inventory/${params.id}`, { headers: internalApiHeaders(user.id), cache: 'no-store' });
   if (!itemResponse.ok) return new Response(await itemResponse.text(), { status: itemResponse.status });

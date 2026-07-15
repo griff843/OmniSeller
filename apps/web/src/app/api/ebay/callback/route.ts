@@ -6,7 +6,7 @@ export async function GET(req: Request) {
   const user = await requireUser();
   const url = new URL(req.url);
   const state = url.searchParams.get('state');
-  const expectedState = cookies().get('omniseller-ebay-oauth-state')?.value;
+  const expectedState = (await cookies()).get('omniseller-ebay-oauth-state')?.value;
 
   if (!state || !expectedState || state !== expectedState) {
     return Response.json({ message: 'Invalid or expired eBay OAuth state' }, { status: 400 });

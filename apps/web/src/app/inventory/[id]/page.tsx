@@ -9,7 +9,8 @@ import { ApiRequestError, fetchApi } from '@/lib/api-base';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ItemDetailPage({ params }: { params: { id: string } }) {
+export default async function ItemDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   let item: InventoryItemDetail;
   let aiWorkspace: AiListingWorkspace;
   let bins: InventoryBin[];

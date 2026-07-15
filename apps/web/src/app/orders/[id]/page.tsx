@@ -6,7 +6,8 @@ import { Order, formatCents } from '@/features/orders/types';
 
 export const dynamic = 'force-dynamic';
 
-export default async function OrderDetailPage({ params }: { params: { id: string } }) {
+export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   let order: Order;
 
   try {
