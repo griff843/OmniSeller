@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class PhotoStoragePathService {
   buildOriginalPhotoKey(params: {
+    userId: string;
     inventoryItemId: string;
     sku: string;
     photoId: string;
@@ -12,7 +13,8 @@ export class PhotoStoragePathService {
     const extension = this.resolveExtension(params.contentType);
     const safeSku = this.sanitizeSegment(params.sku);
 
-    return `inventory/${safeSku}/${params.inventoryItemId}/photos/${params.photoId}/original.${extension}`;
+    const safeUser = this.sanitizeSegment(params.userId);
+    return `sellers/${safeUser}/inventory/${safeSku}/${params.inventoryItemId}/photos/${params.photoId}/original.${extension}`;
   }
 
   private resolveExtension(contentType: string): string {

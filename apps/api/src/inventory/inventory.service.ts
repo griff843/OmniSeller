@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PhotoAssetRole, PhotoUploadStatus, prisma } from '@omniseller/db';
 import { CompletePhotoUploadDto } from './dto/complete-photo-upload.dto';
@@ -232,6 +232,7 @@ export class InventoryService {
       dto.files.map((file, index) => {
         const photoId = randomUUID();
         const storageKey = this.photoStoragePathService.buildOriginalPhotoKey({
+          userId: ownerId,
           inventoryItemId: item.id,
           sku: item.sku,
           photoId,
@@ -265,14 +266,14 @@ export class InventoryService {
     };
   }
 
-  async completePhotoUpload(inventoryItemId: string, photoId: string, dto: CompletePhotoUploadDto & { url: string }, userId?: string): Promise<unknown> {
+  async completePhotoUpload(inventoryItemId: string, photoId: string, dto: CompletePhotoUploadDto, userId?: string): Promise<unknown> {
     const ownerId = resolveUserId(userId);
     const photo = await this.requirePhoto(inventoryItemId, photoId, ownerId);
 
     await prisma.photo.update({
       where: { id: photo.id },
       data: {
-        url: dto.url,
+        url: this.buildPhotoPublicUrl(photo),
         uploadStatus: PhotoUploadStatus.READY,
         width: dto.width ?? photo.width,
         height: dto.height ?? photo.height,
@@ -283,6 +284,13 @@ export class InventoryService {
 
     await this.syncWorkflowState(inventoryItemId);
     return this.get(inventoryItemId, ownerId);
+  }
+
+  private buildPhotoPublicUrl(photo: { storageBucket: string; storageKey: string }): string {
+    const supabaseUrl = this.configService.get<string>('NEXT_PUBLIC_SUPABASE_URL')?.replace(/\/$/, '');
+    if (supabaseUrl) return `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(photo.storageBucket)}/${photo.storageKey.split('/').map(encodeURIComponent).join('/')}`;
+    if (process.env.NODE_ENV === 'production') throw new ServiceUnavailableException('Production object storage is not configured.');
+    return `/local-uploads/${photo.storageKey}`;
   }
 
   async setPrimaryPhoto(inventoryItemId: string, photoId: string, userId?: string): Promise<unknown> {

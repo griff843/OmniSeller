@@ -50,7 +50,7 @@ export class InventoryController {
   completePhotoUpload(
     @Param('id') id: string,
     @Param('photoId') photoId: string,
-    @Body() dto: CompletePhotoUploadDto & { url: string },
+    @Body() dto: CompletePhotoUploadDto,
     @Headers(USER_ID_HEADER) userId?: string,
   ): Promise<unknown> {
     return this.svc.completePhotoUpload(id, photoId, dto, userId);

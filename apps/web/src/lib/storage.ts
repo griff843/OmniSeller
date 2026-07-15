@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { unlink } from 'fs/promises';
+import path from 'path';
 
 const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
@@ -50,4 +52,17 @@ export async function createSignedUpload(storageKey: string) {
     path: data.path,
     publicUrl: publicData.publicUrl,
   };
+}
+
+export async function deleteStoredObject(storageBucket: string, storageKey: string) {
+  if (isLocalStorageFallbackEnabled()) {
+    const root = path.resolve(process.cwd(), 'public', 'local-uploads');
+    const target = path.resolve(root, ...storageKey.replace(/\\/g, '/').split('/').filter((segment) => segment && segment !== '.' && segment !== '..'));
+    if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Unsafe local storage key');
+    await unlink(target).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+    return;
+  }
+  const supabase = createStorageAdminClient();
+  const { error } = await supabase.storage.from(storageBucket).remove([storageKey]);
+  if (error) throw new Error(`Unable to delete stored photo: ${error.message}`);
 }
