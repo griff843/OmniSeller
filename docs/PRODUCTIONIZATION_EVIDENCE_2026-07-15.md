@@ -12,6 +12,9 @@ mocked-provider proof from credentialed external acceptance.
 | Prisma generation | `pnpm db:generate` | Passed |
 | Full repository gate | `pnpm verify` | Passed: lint, generated-client typecheck, 13 suites/71 tests, web build, API build |
 | Browser acceptance | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm test:e2e` | Passed: 3/3 Chromium and mobile-Chromium tests |
+| Dependency scan | OSV Scanner against `pnpm-lock.yaml` | Passed: zero known findings after patched runtime upgrades |
+| Secret scan | Gitleaks across the PR commit range | Passed: no leaks detected |
+| Container scan | Trivy HIGH/CRITICAL, fixed findings required | Passed for API and web production images |
 | Diff integrity | `git diff --check` | Passed |
 
 The browser run used disposable PostgreSQL and Redis services plus the real web
@@ -58,7 +61,16 @@ GitHub Actions run `29438798367` failed typecheck because its job did not run
 Prisma generation, so Linux checked source against an absent/stale generated
 client. The root typecheck command and CI workflow now generate the client
 before TypeScript. Replacement run `29442719757` passed lint, typecheck, tests,
-and builds.
+and builds. Final-head CI run `29449066344` passed lint/typecheck, tests, builds,
+and browser acceptance; security run `29449066157` passed Gitleaks, OSV, and
+both container scans.
+
+The security run initially exposed an invalid Trivy action tag, then real
+high-severity dependency and image findings. The action was pinned to a valid
+release; pnpm, Next, Nest, and vulnerable runtime transitive dependencies were
+upgraded; image OS packages were patched; and runtime images were reduced to
+production artifacts with npm/corepack removed. No vulnerability was suppressed
+to make the final checks pass.
 
 ## External acceptance record
 
