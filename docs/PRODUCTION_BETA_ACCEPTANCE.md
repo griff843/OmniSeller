@@ -7,15 +7,15 @@ Last reconciled: 2026-07-15
 | Area | Supported state | Evidence/gate | Remaining external work |
 | --- | --- | --- | --- |
 | Setup | Frozen install, Prisma generate/migrate, deterministic seed | `pnpm install --frozen-lockfile`; isolated empty-database migration and double-seed | Select hosting target |
-| Authentication | Protected web routes, development credentials login, API server-to-server secret, ownership filters | unauthenticated redirect; authenticated render; direct API `401`; cross-owner item `404` | Configure a production identity provider |
+| Authentication | Invitation-only Auth0/OIDC provider, development-only credentials, stable adapter identity, immediate disabled-user enforcement | Playwright missing/malformed session and logout; live two-user inventory/listing/order/shipment `404`; revoked user `401` | Real Auth0 tenant login and renewal acceptance |
 | Inventory | Create, edit, get, list, filter, sort, workflow derivation | unit tests and persisted live API record after reload | None for supported beta flow |
-| Photos | JPEG/PNG/WebP validation, 15 MB limit, local upload/display/reorder/primary/delete | unit tests plus live authenticated local-storage workflow and `200` image retrieval | Supabase credentialed acceptance if remote storage is selected |
+| Photos | JPEG/PNG/WebP validation, 15 MB limit, tenant paths, Supabase signed upload, remote/local deletion, stale cleanup | unit tests plus Playwright authenticated upload/display/reload | Supabase credentialed cross-seller acceptance |
 | AI drafts | Provider contract, response validation, normalized editable drafts, honest unavailable state | unit tests; live no-key `503` | OpenAI credentialed acceptance |
 | Readiness | Derived blockers; listed/sold behavior; publish-attempt truth | unit tests and live ready/listed/sold records | Category-specific eBay requirements remain provider validation |
 | eBay publication | OAuth boundary, CSRF state, Inventory API item/offer/publish contract, error normalization, offer reuse | mocked transport tests; live no-token `503` persisted as `UNAVAILABLE` without a listing row | Real sandbox OAuth and publication |
-| Orders | Owned list/detail, identifiers, addresses, line items, totals, persisted local fixture | unit tests and live list/detail | Marketplace ingestion/sync is not implemented |
-| Shipping | Owned rate/purchase/void boundary, idempotent purchase, persisted errors, honest availability | unit tests; live no-key rate `503`; live purchase `503` persisted as recoverable `UNAVAILABLE` | EasyPost sandbox rate/purchase/void |
-| Deployment | Release-readiness workflow only | `.github/workflows/deploy.yml` no longer claims a fake deployment | Choose and configure a production platform |
+| Orders | Automatic five-minute eBay polling, overlap checkpoint, replay-safe upsert, cancellation and sold transitions | mocked HTTP + real PostgreSQL proof: two replays = one order/line; cancellation restores `LISTED` | eBay sandbox order acceptance |
+| Shipping | Owned rate/purchase/void boundary, concurrent idempotency claim, persisted errors, honest availability | unit tests; live no-key behavior; concurrency constraint | EasyPost sandbox rate/purchase/void |
+| Deployment | Node 20 images, one-shot migration, health/readiness, staging compose, security CI | local API image build and live dependency readiness | Approved managed staging, monitoring, DNS/TLS, restore drill |
 
 ## Required local environment
 
@@ -29,7 +29,7 @@ Required for the core local stack:
 - `NEXT_PUBLIC_APP_URL`
 - Postgres and Redis
 
-The root `.env.example` is authoritative. Feature-provider variables are optional; the UI and API report unavailable states when they are absent.
+The root `.env.example` is authoritative. Auth0, Supabase, eBay, EasyPost, encryption, PostgreSQL, and Redis configuration are required by the production runtime validator. OpenAI remains optional.
 
 ## Standard verification
 
@@ -47,7 +47,7 @@ pnpm verify
 
 ### Production identity
 
-The credentials provider refuses production login unless `OMNISELLER_ALLOW_PASSWORDLESS_LOGIN=true`. Do not enable that flag for a public beta. Add and verify an approved OAuth/email provider, then prove sign-in, sign-out, expiry, protected routes, and two-user object isolation.
+Configure the Auth0 Regular Web Application described in `docs/PRODUCTION_OPERATIONS.md`, invite two users with `pnpm db:user invite`, and prove callback, renewal, expiry, logout, revocation, and two-browser isolation. Local OIDC-compatible provider wiring and isolation are proven; no real Auth0 tenant success is claimed.
 
 ### eBay sandbox publication
 
@@ -75,15 +75,13 @@ The credentials provider refuses production login unless `OMNISELLER_ALLOW_PASSW
 
 ## Deployment and rollback
 
-There is no configured production target. Before deployment, select a platform supporting the Next.js web app, Nest API/worker, Postgres, Redis, durable secrets, and public HTTPS image URLs. Apply migrations as a separate release step before starting the new API. Back up Postgres and record the previous web/API artifact IDs.
-
-Rollback application artifacts to the previous version if health checks fail. The publish-state migration only adds an enum and nullable/defaulted columns and is forward-safe; do not automatically roll it back after data has been written. Restore the database only from an explicit backup after owner approval.
+Production-shape images and a loopback-only compose harness exist, but no public target is selected. Apply migrations with the one-shot service before API startup. Follow `docs/PRODUCTION_OPERATIONS.md` for backup, rollback triggers, and worker reconciliation.
 
 ## Accepted residual risks and known limitations
 
-- Marketplace order ingestion and webhook verification are not implemented, so the product must not claim automatic order sync.
-- Provider tokens are stored in Postgres; production must use encrypted storage or database-level encryption with restricted access.
-- There is no production rate limiter or provider webhook endpoint in the supported flow.
+- Polling, rather than webhooks, is the intentionally supported eBay ingestion mechanism for the invitation beta.
+- Provider tokens are AES-256-GCM encrypted; the deployment key manager and live rotation still require staging acceptance.
+- Redis limits protect provider writes and fail closed in production. Auth0 owns authentication-attempt throttling.
 - Local photo fallback is development-only and intentionally disabled in production.
 - External calls use bounded failures, but full provider success remains credential-gated.
-- Browser automation is not part of the repository; local proof used authenticated HTTP rendering and API interactions. Add Playwright coverage before expanding beyond a controlled beta.
+- Playwright covers the deterministic local boundary; real Auth0, Supabase, eBay, and EasyPost successes remain credential-gated.

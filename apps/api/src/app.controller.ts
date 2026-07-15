@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpCode, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AppService } from './app.service';
 
@@ -22,5 +22,16 @@ export class AppController {
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || 'development',
     };
+  }
+
+  @Get('health/live')
+  getLiveness() { return { status: 'alive', uptime: process.uptime() }; }
+
+  @Get('health/ready')
+  @HttpCode(200)
+  async getReadiness() {
+    const result = await this.appService.getReadiness();
+    if (!result.ready) throw new ServiceUnavailableException(result);
+    return result;
   }
 }

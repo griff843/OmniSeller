@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: omniseller
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: omniseller
+    volumes: [staging-postgres:/var/lib/postgresql/data]
+    healthcheck: { test: [CMD-SHELL, "pg_isready -U omniseller"], interval: 5s, timeout: 3s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes", --requirepass, "${REDIS_PASSWORD:?required}"]
+    volumes: [staging-redis:/data]
+    healthcheck: { test: [CMD, redis-cli, -a, "${REDIS_PASSWORD}", ping], interval: 5s, timeout: 3s, retries: 20 }
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    command: [pnpm, db:migrate:deploy]
+    environment:
+      DATABASE_URL: postgresql://omniseller:${POSTGRES_PASSWORD}@postgres:5432/omniseller
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: [.env.staging]
+    environment:
+      DATABASE_URL: postgresql://omniseller:${POSTGRES_PASSWORD}@postgres:5432/omniseller
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_healthy } }
+    ports: ["127.0.0.1:3001:3001"]
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    env_file: [.env.staging]
+    environment:
+      DATABASE_URL: postgresql://omniseller:${POSTGRES_PASSWORD}@postgres:5432/omniseller
+      OMNISELLER_API_BASE_URL: http://api:3001
+    depends_on: { api: { condition: service_healthy } }
+    ports: ["127.0.0.1:3000:3000"]
+volumes:
+  staging-postgres:
+  staging-redis:
