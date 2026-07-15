@@ -8,15 +8,6 @@ importers:
 
   .:
     devDependencies:
-      '@agent-os/adapters':
-        specifier: file:/home/griff843/code/Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz
-        version: file:../Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz(@agent-os/core@0.1.0)
-      '@agent-os/cli':
-        specifier: file:/home/griff843/code/Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz
-        version: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz(@agent-os/adapters@0.1.0)(@agent-os/core@0.1.0)
-      '@agent-os/core':
-        specifier: file:/home/griff843/code/Agent-OS/.out/packages/agent-os-core-0.1.0.tgz
-        version: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
@@ -8629,37 +8620,3 @@ packages:
   /zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
     dev: false
-
-  file:../Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz(@agent-os/core@0.1.0):
-    resolution: {integrity: sha512-ynPOk6bYgRpLy/+eYUSlSrICHz6OVdI8AOrA9O+ErTviEalKTFY4Ipj72laK1j40L37gK7fnl/IIHL234G/7JA==, tarball: file:../Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz}
-    id: file:../Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz
-    name: '@agent-os/adapters'
-    version: 0.1.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@agent-os/core': 0.1.0
-    dependencies:
-      '@agent-os/core': file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz
-    dev: true
-
-  file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz(@agent-os/adapters@0.1.0)(@agent-os/core@0.1.0):
-    resolution: {integrity: sha512-FEeZX5shAGV5wzvEGXVYYJ2XtV/YGactHOIb++QGO62K5DUFJkROv0CHc5KTcQWWJa498UuyfKSn3AUZ6mqZnQ==, tarball: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz}
-    id: file:../Agent-OS/.out/packages/agent-os-cli-0.1.0.tgz
-    name: '@agent-os/cli'
-    version: 0.1.0
-    engines: {node: '>=22'}
-    hasBin: true
-    peerDependencies:
-      '@agent-os/adapters': 0.1.0
-      '@agent-os/core': 0.1.0
-    dependencies:
-      '@agent-os/adapters': file:../Agent-OS/.out/packages/agent-os-adapters-0.1.0.tgz(@agent-os/core@0.1.0)
-      '@agent-os/core': file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz
-    dev: true
-
-  file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz:
-    resolution: {integrity: sha512-b83WiW7Ui+n6LUbbvj4t7WqZrCl1WwjRlvfEgX35fmJKN1IJxaqwGcXDnbZtinu7ACUmwAOcYFl5kK4Z39gDjg==, tarball: file:../Agent-OS/.out/packages/agent-os-core-0.1.0.tgz}
-    name: '@agent-os/core'
-    version: 0.1.0
-    engines: {node: '>=22'}
-    dev: true
