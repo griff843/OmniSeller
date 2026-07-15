@@ -45,14 +45,16 @@ Required local variables from `.env.example`:
 
 - `DATABASE_URL` points Prisma and the apps at local Postgres.
 - `NEXTAUTH_SECRET` is required by the web app auth configuration.
+- `OMNISELLER_API_INTERNAL_SECRET` is required by both apps and authenticates server-to-server API calls. Use a different random value from `NEXTAUTH_SECRET`.
 - `NEXT_PUBLIC_APP_URL` identifies the local web app URL.
 
 Optional feature variables:
 
 - `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE`, and `STORAGE_BUCKET` enable Supabase-backed photo storage.
-- `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REDIRECT_URI`, `EBAY_ENV`, and `EBAY_API_BASE` enable eBay OAuth and fulfillment sync.
+- `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_REDIRECT_URI`, `EBAY_ENV`, and `EBAY_API_BASE` enable eBay OAuth.
+- eBay publication additionally requires `EBAY_MERCHANT_LOCATION_KEY`, `EBAY_PAYMENT_POLICY_ID`, `EBAY_RETURN_POLICY_ID`, and `EBAY_FULFILLMENT_POLICY_ID` from a sandbox seller opted into business policies.
 - `EASYPOST_API_KEY` and `DEFAULT_SHIP_FROM_*` enable shipping rate and label purchase flows.
-- `OPENAI_MODEL` selects the AI listing suggestion model when that workflow is configured.
+- `OPENAI_API_KEY` enables AI listing suggestions; `OPENAI_MODEL` selects the model.
 - `OMNISELLER_API_BASE_URL`, `PORT`, `NODE_ENV`, `REDIS_HOST`, and `REDIS_PORT` can override local app defaults.
 
 3. Start infrastructure
@@ -66,6 +68,7 @@ docker compose up -d postgres redis
 ```powershell
 pnpm db:generate
 pnpm db:migrate:deploy
+pnpm db:seed
 ```
 
 5. Start the apps
@@ -105,6 +108,7 @@ Remove-Item Env:OMNISELLER_SKIP_PRISMA_DEV_GUARD
 pnpm db:generate
 pnpm db:migrate:status
 pnpm db:migrate:deploy
+pnpm db:seed
 pnpm db:push
 pnpm db:studio
 pnpm dev
@@ -119,65 +123,25 @@ pnpm install
 pnpm db:generate
 pnpm db:migrate:deploy
 pnpm dev
-pnpm build
-pnpm lint
-pnpm typecheck
-pnpm test
+pnpm verify
 ```
 
 For the standard Agent-OS and local build verification flow, see
 [`docs/runbooks/LOCAL_VERIFICATION.md`](docs/runbooks/LOCAL_VERIFICATION.md).
 
-## Agent-OS test lane
+## Supported beta workflow
 
-OMNI-101 validated a README-only Agent-OS worktree dispatch.
+- Development credentials login is enabled only outside production unless `OMNISELLER_ALLOW_PASSWORDLESS_LOGIN=true` is explicitly set. Production needs a real identity provider before users can sign in.
+- Inventory CRUD, filtering, sorting, local photos, editable listing drafts, readiness, orders, and honest provider-unavailable states are supported.
+- Supabase photo storage, OpenAI generation, eBay sandbox publication, and EasyPost sandbox label purchase require their own credentials and external acceptance runs.
+- Marketplace order ingestion is not implemented; local seeded orders are explicitly local fixtures.
+- No production hosting target is configured. `.github/workflows/deploy.yml` verifies release readiness only and does not deploy.
 
-## Agent-OS local issue queue examples
+See [`docs/PRODUCTION_BETA_ACCEPTANCE.md`](docs/PRODUCTION_BETA_ACCEPTANCE.md) for the completion matrix, external acceptance commands, deployment prerequisites, rollback, and known limitations.
 
-Agent-OS issue queue file scopes must name concrete files. Directory scopes such as
-`docs/` are invalid and will fail dry-run validation.
+## Historical Agent-OS artifacts
 
-README-only lane:
-
-```json
-{
-  "id": "OMNI-README",
-  "title": "Update README guidance",
-  "status": "open",
-  "labels": ["ready"],
-  "tier": "T2",
-  "lane_type": "hygiene",
-  "file_scope": ["README.md"]
-}
-```
-
-Runbook lane:
-
-```json
-{
-  "id": "OMNI-RUNBOOK",
-  "title": "Update local verification runbook",
-  "status": "open",
-  "labels": ["ready"],
-  "tier": "T2",
-  "lane_type": "hygiene",
-  "file_scope": ["docs/runbooks/LOCAL_VERIFICATION.md"]
-}
-```
-
-Package verification lane:
-
-```json
-{
-  "id": "OMNI-PACKAGE",
-  "title": "Update verification scripts",
-  "status": "open",
-  "labels": ["ready"],
-  "tier": "T2",
-  "lane_type": "verification",
-  "file_scope": ["package.json"]
-}
-```
+Completed Agent-OS lane, lease, and proof history is retained under `.agent-os/` and `.ops/`. The CLI is intentionally not an application dependency; install it independently before dispatching new lanes. The final queue reconciliation is recorded in `.agent-os/reconciliation/2026-07-15-finalization.md`.
 
 ## Notes
 

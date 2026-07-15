@@ -39,9 +39,22 @@ async function bootstrap() {
     next();
   });
 
-  // Enable CORS for localhost:3000
+  const configuredOrigins = (process.env.OMNISELLER_WEB_ORIGIN ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = configuredOrigins.length > 0
+    ? configuredOrigins
+    : process.env.NODE_ENV === 'production'
+      ? []
+      : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+  if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+    throw new Error('OMNISELLER_WEB_ORIGIN is required in production');
+  }
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: allowedOrigins,
     credentials: true,
   });
 

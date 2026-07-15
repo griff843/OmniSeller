@@ -1,15 +1,12 @@
-name: Deploy
+name: Deployment Readiness
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to Production
+  verify-release-candidate:
+    name: Verify release candidate
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -29,16 +26,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Verify
+        run: pnpm verify
         env:
           SKIP_ENV_VALIDATION: true
-
-      - name: Deploy
-        run: |
-          echo "🚀 Deployment steps would go here"
-          echo "Configure this based on your hosting platform:"
-          echo "  - Vercel: vercel deploy --prod"
-          echo "  - AWS: deploy to ECS/EC2/Lambda"
-          echo "  - Docker: build and push images"
-        # Add your deployment commands here
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/omniseller
+          NEXTAUTH_SECRET: release-readiness-only-not-for-production
+          NEXTAUTH_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          OMNISELLER_API_INTERNAL_SECRET: release-readiness-api-secret
