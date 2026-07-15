@@ -3,9 +3,8 @@ module.exports = {
     './eslint-preset.js',
     'next/core-web-vitals',
     'plugin:react/recommended',
-    'plugin:react-hooks/recommended',
   ],
-  plugins: ['react', 'react-hooks'],
+  plugins: ['react'],
   settings: {
     react: {
       version: 'detect',

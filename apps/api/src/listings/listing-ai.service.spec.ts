@@ -1,4 +1,4 @@
-import { InternalServerErrorException } from '@nestjs/common';
+import { InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
 import { AiListingSuggestionStatus, prisma } from '@omniseller/db';
 import { ListingAiService } from './listing-ai.service';
 
@@ -27,6 +27,7 @@ jest.mock('@omniseller/db', () => ({
 
 describe('ListingAiService', () => {
   const provider = {
+    isConfigured: jest.fn(),
     generateSuggestion: jest.fn(),
   };
 
@@ -35,11 +36,13 @@ describe('ListingAiService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    provider.isConfigured.mockReturnValue(true);
   });
 
   function mockWorkflowRefresh(overrides: Record<string, unknown> = {}) {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
       id: 'item_1',
+      userId: 'dev-user',
       title: 'Vintage Camera',
       condition: 'Used',
       saleStatus: 'AVAILABLE',
@@ -55,6 +58,7 @@ describe('ListingAiService', () => {
   it('persists a generated AI listing suggestion', async () => {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
       id: 'item_1',
+      userId: 'dev-user',
       sku: 'SKU-1',
       title: 'Vintage Camera',
       description: 'Working 35mm camera body',
@@ -102,7 +106,7 @@ describe('ListingAiService', () => {
     });
     mockWorkflowRefresh({ aiListingSuggestions: [{}] });
 
-    const result = (await service.generateSuggestion('item_1')) as { id: string };
+    const result = (await service.generateSuggestion('item_1', 'dev-user')) as { id: string };
 
     expect(provider.generateSuggestion).toHaveBeenCalledTimes(1);
     expect(mockedPrisma.aiListingSuggestion.create).toHaveBeenCalledWith(
@@ -116,9 +120,10 @@ describe('ListingAiService', () => {
     expect(result.id).toBe('suggestion_1');
   });
 
-  it('persists a failed suggestion record when the provider response is malformed', async () => {
+  it('reports AI as unavailable without persisting a failed suggestion when no provider key is configured', async () => {
     mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
       id: 'item_1',
+      userId: 'dev-user',
       sku: 'SKU-1',
       title: 'Vintage Camera',
       description: null,
@@ -129,7 +134,32 @@ describe('ListingAiService', () => {
       upc: null,
       costBasisCents: 2500,
       saleStatus: 'AVAILABLE',
-      photos: [],
+      photos: [{ url: 'https://cdn.test/photo.jpg', isPrimary: true, originalFileName: 'front.jpg', uploadStatus: 'READY' }],
+      listingDraft: null,
+      listings: [],
+      aiListingSuggestions: [],
+    });
+    provider.isConfigured.mockReturnValue(false);
+
+    await expect(service.generateSuggestion('item_1', 'dev-user')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(mockedPrisma.aiListingSuggestion.create).not.toHaveBeenCalled();
+  });
+
+  it('persists a failed suggestion record when the provider response is malformed', async () => {
+    mockedPrisma.inventoryItem.findUnique.mockResolvedValueOnce({
+      id: 'item_1',
+      userId: 'dev-user',
+      sku: 'SKU-1',
+      title: 'Vintage Camera',
+      description: null,
+      category: null,
+      condition: 'Used',
+      brand: 'Canon',
+      model: 'AE-1',
+      upc: null,
+      costBasisCents: 2500,
+      saleStatus: 'AVAILABLE',
+      photos: [{ url: 'https://cdn.test/photo.jpg', isPrimary: true, originalFileName: 'front.jpg', uploadStatus: 'READY' }],
       listingDraft: null,
       listings: [],
       aiListingSuggestions: [],
@@ -138,7 +168,7 @@ describe('ListingAiService', () => {
     mockedPrisma.aiListingSuggestion.create.mockResolvedValue({});
     mockWorkflowRefresh();
 
-    await expect(service.generateSuggestion('item_1')).rejects.toBeInstanceOf(
+    await expect(service.generateSuggestion('item_1', 'dev-user')).rejects.toBeInstanceOf(
       InternalServerErrorException,
     );
 
@@ -182,7 +212,7 @@ describe('ListingAiService', () => {
     const result = (await service.applySuggestion('item_1', {
       suggestionId: 'suggestion_1',
       fields: ['title', 'priceCents'],
-    })) as { title: string; priceCents: number };
+    }, 'dev-user')) as { title: string; priceCents: number };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -222,7 +252,7 @@ describe('ListingAiService', () => {
     const result = (await service.updateDraft('item_1', {
       title: 'Draft title',
       itemSpecifics: { ' Brand ': ' Canon ', '': 'ignored' },
-    })) as { itemSpecifics: Record<string, string> };
+    }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -269,7 +299,7 @@ describe('ListingAiService', () => {
         ' ': 'ignored blank key',
         Color: '   ',
       },
-    })) as { itemSpecifics: Record<string, string> };
+    }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -321,7 +351,7 @@ describe('ListingAiService', () => {
 
     const result = (await service.updateDraft('item_1', {
       title: 'Updated title',
-    })) as { itemSpecifics: Record<string, string> };
+    }, 'dev-user')) as { itemSpecifics: Record<string, string> };
 
     expect(mockedPrisma.listingDraft.upsert).toHaveBeenCalledWith(
       expect.objectContaining({

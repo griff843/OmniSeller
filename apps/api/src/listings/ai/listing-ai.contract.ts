@@ -36,6 +36,7 @@ export type ListingGenerationResult = {
 };
 
 export interface ListingAiProvider {
+  isConfigured(): boolean;
   generateSuggestion(input: ListingGenerationInput): Promise<ListingGenerationResult>;
 }
 

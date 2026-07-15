@@ -24,6 +24,15 @@ import { OrdersModule } from './orders/orders.module';
     }),
     LoggerModule.forRoot({
       pinoHttp: {
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            "req.headers['x-omniseller-internal-secret']",
+            'req.headers.cookie',
+            "res.headers['set-cookie']",
+          ],
+          censor: '[REDACTED]',
+        },
         transport: {
           target: 'pino-pretty',
           options: {

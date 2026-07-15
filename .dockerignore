@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/.next
+**/dist
+**/coverage
+.env*
+apps/web/public/local-uploads
+a.out

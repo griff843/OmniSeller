@@ -17,6 +17,9 @@ model User {
   email         String?  @unique
   emailVerified DateTime?
   image         String?
+  disabledAt    DateTime?
+  disabledReason String?
+  invitedAt      DateTime?
 
   accounts            Account[]
   sessions            Session[]
@@ -82,7 +85,12 @@ model MarketplaceAccount {
 
   accessToken  String?  @db.Text
   refreshToken String?  @db.Text
+  tokenKeyId   String?
   expiresAt    DateTime?
+  syncStatus   String    @default("NOT_STARTED")
+  syncCursor   String?
+  lastSyncAt   DateTime?
+  lastSyncError String?  @db.Text
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   listings  Listing[]
@@ -141,6 +149,16 @@ enum SaleLifecycleStatus {
   SHIPPED
 }
 
+enum PublishExecutionStatus {
+  NOT_REQUESTED
+  BLOCKED
+  QUEUED
+  PROCESSING
+  UNAVAILABLE
+  FAILED
+  PUBLISHED
+}
+
 model InventoryItem {
   id                   String   @id @default(cuid())
   userId               String
@@ -161,6 +179,14 @@ model InventoryItem {
   inventoryStatus      InventoryStatus   @default(DRAFT)
   listingReadiness     ListingReadiness  @default(NEEDS_INTAKE)
   saleStatus           SaleLifecycleStatus @default(AVAILABLE)
+  publishStatus        PublishExecutionStatus @default(NOT_REQUESTED)
+  publishMarketplace   String?
+  publishRequestedAt   DateTime?
+  publishQueuedAt      DateTime?
+  publishStartedAt     DateTime?
+  publishedAt          DateTime?
+  publishFailedAt      DateTime?
+  publishError         String?
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   bin                  Bin?                 @relation(fields: [binId], references: [id])
@@ -178,6 +204,7 @@ model InventoryItem {
   @@index([inventoryStatus])
   @@index([listingReadiness])
   @@index([saleStatus])
+  @@index([publishStatus])
   @@index([brand])
   @@index([category])
   @@index([binId])
@@ -333,6 +360,10 @@ model Order {
   feeCents             Int      @default(0)
   shippingCents        Int      @default(0)
   taxCents             Int      @default(0)
+  status               String   @default("ACTIVE")
+  providerCreatedAt    DateTime?
+  providerUpdatedAt    DateTime?
+  rawDiagnostics       Json?
 
   marketplaceAccount MarketplaceAccount @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
   items              OrderItem[]
@@ -365,6 +396,7 @@ model OrderItem {
   @@index([listingId])
   @@index([inventoryItemId])
   @@index([marketplaceLineItemId])
+  @@unique([orderId, marketplaceLineItemId])
 }
 
 enum ShipmentStatus {
@@ -400,6 +432,7 @@ model Shipment {
   purchasedAt           DateTime?
   syncedToMarketplaceAt DateTime?
   voidedAt              DateTime?
+  idempotencyKey        String?
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -409,6 +442,7 @@ model Shipment {
   @@index([orderId])
   @@index([status])
   @@index([trackingCode])
+  @@unique([orderId, idempotencyKey])
 }
 
 model PriceHistory {

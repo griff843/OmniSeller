@@ -5,6 +5,7 @@ describe('PhotoStoragePathService', () => {
 
   function buildKey(overrides: Partial<Parameters<PhotoStoragePathService['buildOriginalPhotoKey']>[0]> = {}) {
     return service.buildOriginalPhotoKey({
+      userId: 'Seller A',
       inventoryItemId: 'item_1',
       sku: 'SKU 123',
       photoId: 'photo_1',
@@ -15,7 +16,7 @@ describe('PhotoStoragePathService', () => {
   }
 
   it('builds a deterministic original photo key from sanitized SKU and IDs', () => {
-    expect(buildKey()).toBe('inventory/sku-123/item_1/photos/photo_1/original.jpg');
+    expect(buildKey()).toBe('sellers/seller-a/inventory/sku-123/item_1/photos/photo_1/original.jpg');
   });
 
   it('normalizes SKU path segments while preserving underscores and hyphens', () => {
@@ -23,7 +24,7 @@ describe('PhotoStoragePathService', () => {
       buildKey({
         sku: '  Shelf A_01 / Camera Kit!!  ',
       }),
-    ).toBe('inventory/shelf-a_01-camera-kit/item_1/photos/photo_1/original.jpg');
+    ).toBe('sellers/seller-a/inventory/shelf-a_01-camera-kit/item_1/photos/photo_1/original.jpg');
   });
 
   it('falls back to item when SKU sanitization leaves an empty path segment', () => {
@@ -31,40 +32,38 @@ describe('PhotoStoragePathService', () => {
       buildKey({
         sku: ' !!! ',
       }),
-    ).toBe('inventory/item/item_1/photos/photo_1/original.jpg');
+    ).toBe('sellers/seller-a/inventory/item/item_1/photos/photo_1/original.jpg');
   });
 
-  it('prefers a clean filename extension and lowercases it', () => {
+  it('uses the validated content type rather than trusting the filename extension', () => {
     expect(
       buildKey({
         originalFileName: 'FRONT.PNG',
         contentType: 'image/jpeg',
       }),
-    ).toBe('inventory/sku-123/item_1/photos/photo_1/original.png');
+    ).toBe('sellers/seller-a/inventory/sku-123/item_1/photos/photo_1/original.jpg');
   });
 
   it.each([
     ['image/png', 'png'],
     ['image/webp', 'webp'],
-    ['image/heic', 'heic'],
     ['IMAGE/PNG', 'png'],
     [' image/png ', 'png'],
-    ['application/octet-stream', 'jpg'],
-  ])('uses content type %s when the filename extension is missing or unsafe', (contentType, extension) => {
+  ])('uses content type %s for the stored extension', (contentType, extension) => {
     expect(
       buildKey({
         originalFileName: 'front-view.',
         contentType,
       }),
-    ).toBe(`inventory/sku-123/item_1/photos/photo_1/original.${extension}`);
+    ).toBe(`sellers/seller-a/inventory/sku-123/item_1/photos/photo_1/original.${extension}`);
   });
 
-  it('falls back to jpg when filename extension contains unsafe characters', () => {
+  it('falls back to jpg for unknown content types', () => {
     expect(
       buildKey({
         originalFileName: 'front.jp@g',
-        contentType: 'image/jpeg',
+        contentType: 'application/octet-stream',
       }),
-    ).toBe('inventory/sku-123/item_1/photos/photo_1/original.jpg');
+    ).toBe('sellers/seller-a/inventory/sku-123/item_1/photos/photo_1/original.jpg');
   });
 });

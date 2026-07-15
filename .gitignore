@@ -12,11 +12,13 @@ coverage
 out
 build
 dist
+apps/web/public/local-uploads
 
 # Environment
 .env
 .env*.local
 .env.production
+.env.staging
 
 # Debug
 npm-debug.log*
@@ -44,3 +46,5 @@ packages/db/src
 
 # Build outputs
 *.tsbuildinfo
+playwright-report
+test-results

@@ -1,29 +1,25 @@
 # OmniSeller Local Verification Runbook
 
-Use this runbook before closing local Agent-OS lanes or publishing changes from `main`.
+Use this runbook before publishing a release-candidate branch.
 
 ## Baseline
 
-Start from the main checkout:
+Start from the candidate checkout:
 
 ```bash
 cd /home/griff843/code/OmniSeller
 git status --short
-pnpm exec agent-os doctor --strict
-pnpm exec agent-os board
 ```
 
-A clean baseline has no `git status --short` output and `agent-os board` reports `active_lanes: 0`.
+A clean baseline has no unexplained `git status --short` output. Preserve and classify pre-existing work before editing.
 
 ## Dependencies
 
-Install dependencies only in the main checkout when they are missing or intentionally refreshed:
+Install dependencies from the committed lockfile:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 ```
-
-Agent-OS worktrees may be created with `--skip-install`. In that case, `pnpm verify` can fail inside the worktree because `node_modules` is absent. Copy the lane result back to main and run verification from the main checkout before committing.
 
 ## Verification
 
@@ -33,22 +29,18 @@ Run the standard verification command:
 pnpm verify
 ```
 
-`pnpm verify` runs `pnpm build`. If you need to confirm the underlying build directly, run:
+`pnpm verify` runs lint, typecheck, tests, and the production build. Database validation is separate:
 
 ```bash
-pnpm build
+pnpm db:generate
+pnpm db:migrate:status
 ```
 
-Both commands should pass from main before committing or pushing.
+For a migration change, deploy into an empty disposable database and recheck status before committing or pushing.
 
-## Agent-OS Lane Checks
+## Historical Agent-OS lane checks
 
-Use the local issue queue at `.agent-os/issues.json`, run a dry-run first, then execute one lane:
-
-```bash
-pnpm exec agent-os loop --dry-run --issues-file .agent-os/issues.json --label ready
-pnpm exec agent-os loop --execute --issues-file .agent-os/issues.json --label ready --limit 1 --skip-install
-```
+Historical evidence is retained under `.agent-os/` and `.ops/`, but the Agent-OS CLI is not an OmniSeller application dependency. Install it independently before running new lanes. The local issue queue should contain only genuinely open work.
 
 Issue queue entries must use concrete file paths. Do not use directory scopes such as
 `docs/`; use the exact file that the lane may change.
@@ -95,12 +87,7 @@ Package verification lane:
 }
 ```
 
-After copying lane results back to main, close the lane and confirm the board is clear:
-
-```bash
-pnpm exec agent-os lane close --issue <ISSUE_ID> --reason complete
-pnpm exec agent-os board
-```
+Preserve completed lane, proof, and released lease files; reconcile stale queue entries with an additive note instead of rewriting historical proof.
 
 ## Files To Keep Out Of Commits
 

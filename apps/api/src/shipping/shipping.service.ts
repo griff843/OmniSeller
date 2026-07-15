@@ -3,6 +3,8 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -13,6 +15,8 @@ import { CreateShippingRatesDto } from './dto/create-shipping-rates.dto';
 import { PurchaseLabelDto } from './dto/purchase-label.dto';
 import { EasyPostClient } from './providers/easypost.client';
 import { SHIPPING_PROVIDER, SHIPPING_SYNC_JOB, SHIPPING_SYNC_QUEUE } from './shipping.constants';
+import { isShippingConfigurationError } from './shipping-workflow-state';
+import { ownsRecord, resolveUserId } from '../common/user-context';
 
 @Injectable()
 export class ShippingService {
@@ -25,21 +29,63 @@ export class ShippingService {
     private readonly shippingSyncQueue: Queue,
   ) {}
 
-  async getShipmentsForOrder(orderId: string): Promise<unknown> {
+  getAvailabilitySummary() {
+    const providerConfigured = this.easyPostClient.isConfigured();
+    const defaultShipFromConfigured = Boolean(this.configService.get<string>('DEFAULT_SHIP_FROM_STREET1'));
+
+    if (!providerConfigured) {
+      return {
+        provider: SHIPPING_PROVIDER,
+        providerConfigured: false,
+        defaultShipFromConfigured,
+        canRequestRates: false,
+        canPurchaseLabels: false,
+        blockedReason:
+          'Shipping is unavailable in this environment. Set EASYPOST_API_KEY to enable rates and label purchase.',
+      };
+    }
+
+    if (!defaultShipFromConfigured) {
+      return {
+        provider: SHIPPING_PROVIDER,
+        providerConfigured: true,
+        defaultShipFromConfigured: false,
+        canRequestRates: false,
+        canPurchaseLabels: true,
+        blockedReason:
+          'Shipping defaults are incomplete. Set DEFAULT_SHIP_FROM_* environment variables before requesting rates.',
+      };
+    }
+
+    return {
+      provider: SHIPPING_PROVIDER,
+      providerConfigured: true,
+      defaultShipFromConfigured: true,
+      canRequestRates: true,
+      canPurchaseLabels: true,
+      blockedReason: null,
+    };
+  }
+
+  async getShipmentsForOrder(orderId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    await this.requireOrderForUser(orderId, ownerId);
+
     return prisma.shipment.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async previewRates(dto: CreateShippingRatesDto) {
-    const order = await prisma.order.findUnique({
-      where: { id: dto.orderId },
-    });
+  async previewRates(dto: CreateShippingRatesDto, userId?: string) {
+    const ownerId = resolveUserId(userId);
+    const availability = this.getAvailabilitySummary();
 
-    if (!order) {
-      throw new BadRequestException(`Order ${dto.orderId} not found`);
+    if (!availability.canRequestRates) {
+      throw new ServiceUnavailableException(availability.blockedReason);
     }
+
+    const order = await this.requireOrderForUser(dto.orderId, ownerId);
 
     if (!Array.isArray(dto.parcels) || dto.parcels.length === 0) {
       throw new BadRequestException('At least one parcel is required');
@@ -75,17 +121,9 @@ export class ShippingService {
     };
   }
 
-  async purchaseLabel(dto: PurchaseLabelDto): Promise<unknown> {
-    const order = await prisma.order.findUnique({
-      where: { id: dto.orderId },
-      include: {
-        marketplaceAccount: true,
-      },
-    });
-
-    if (!order) {
-      throw new BadRequestException(`Order ${dto.orderId} not found`);
-    }
+  async purchaseLabel(dto: PurchaseLabelDto, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
+    const order = await this.requireOrderForUser(dto.orderId, ownerId);
 
     const existing = await prisma.shipment.findFirst({
       where: {
@@ -108,11 +146,14 @@ export class ShippingService {
       return existing;
     }
 
-    const pendingShipment = await this.createOrResetPendingShipment(
+    const pendingShipment = await this.claimPendingShipment(
       dto.orderId,
       dto.providerShipmentId,
       dto.rateId,
     );
+    if (this.isPurchasedStatus(pendingShipment.status)) {
+      return pendingShipment;
+    }
 
     let bought: Awaited<ReturnType<EasyPostClient['buyShipment']>>;
 
@@ -129,7 +170,7 @@ export class ShippingService {
           status: ShipmentStatus.ERROR,
           metadata: this.mergeMetadata(pendingShipment.metadata, {
             purchase: {
-              state: 'FAILED',
+              state: this.isConfigurationError(error) ? 'UNAVAILABLE' : 'FAILED',
               failedAt: new Date().toISOString(),
               recoverable: true,
               message: error instanceof Error ? error.message : 'Unknown carrier purchase error',
@@ -257,13 +298,21 @@ export class ShippingService {
     return shipment;
   }
 
-  async voidLabel(shipmentId: string): Promise<unknown> {
+  async voidLabel(shipmentId: string, userId?: string): Promise<unknown> {
+    const ownerId = resolveUserId(userId);
     const shipment = await prisma.shipment.findUnique({
       where: { id: shipmentId },
+      include: {
+        order: {
+          include: {
+            marketplaceAccount: true,
+          },
+        },
+      },
     });
 
-    if (!shipment) {
-      throw new BadRequestException(`Shipment ${shipmentId} not found`);
+    if (!shipment || !shipment.order || !ownsRecord(shipment.order.marketplaceAccount?.userId, ownerId)) {
+      throw new NotFoundException(`Shipment ${shipmentId} not found`);
     }
 
     if (!shipment.providerShipmentId) {
@@ -286,7 +335,7 @@ export class ShippingService {
         data: {
           metadata: this.mergeMetadata(shipment.metadata, {
             void: {
-              state: 'FAILED',
+              state: this.isConfigurationError(error) ? 'UNAVAILABLE' : 'FAILED',
               failedAt: new Date().toISOString(),
               message: error instanceof Error ? error.message : 'Unknown refund failure',
             },
@@ -319,50 +368,45 @@ export class ShippingService {
     });
   }
 
-  private async createOrResetPendingShipment(
+  private async claimPendingShipment(
     orderId: string,
     providerShipmentId: string,
     rateId: string,
   ) {
-    const existing = await prisma.shipment.findFirst({
-      where: {
-        orderId,
-        providerShipmentId,
-        providerRateId: rateId,
+    const idempotencyKey = `${providerShipmentId}:${rateId}`;
+    try {
+      return await prisma.shipment.create({
+        data: { orderId, provider: SHIPPING_PROVIDER, status: ShipmentStatus.PENDING, providerShipmentId, providerRateId: rateId, idempotencyKey, metadata: { purchase: { state: 'IN_PROGRESS', requestedAt: new Date().toISOString() } } },
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      const existing = await prisma.shipment.findUnique({ where: { orderId_idempotencyKey: { orderId, idempotencyKey } } });
+      if (!existing) throw error;
+      if (this.isPurchasedStatus(existing.status)) return existing;
+      if (existing.status === ShipmentStatus.PENDING) throw new BadRequestException('An identical label purchase is already in progress.');
+      const claim = await prisma.shipment.updateMany({ where: { id: existing.id, status: ShipmentStatus.ERROR }, data: { status: ShipmentStatus.PENDING, metadata: this.mergeMetadata(existing.metadata, { purchase: { state: 'IN_PROGRESS', requestedAt: new Date().toISOString() } }) } });
+      if (claim.count !== 1) throw new BadRequestException('An identical label purchase is already in progress.');
+      return prisma.shipment.findUniqueOrThrow({ where: { id: existing.id } });
+    }
+  }
+
+  private isPurchasedStatus(status: ShipmentStatus): boolean {
+    return status === ShipmentStatus.LABEL_PURCHASED || status === ShipmentStatus.SYNC_QUEUED || status === ShipmentStatus.SYNCED_TO_MARKETPLACE;
+  }
+
+  private async requireOrderForUser(orderId: string, userId: string) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        marketplaceAccount: true,
       },
-      orderBy: { createdAt: 'desc' },
     });
 
-    if (existing) {
-      return prisma.shipment.update({
-        where: { id: existing.id },
-        data: {
-          status: ShipmentStatus.PENDING,
-          metadata: this.mergeMetadata(existing.metadata, {
-            purchase: {
-              state: 'IN_PROGRESS',
-              requestedAt: new Date().toISOString(),
-            },
-          }),
-        },
-      });
+    if (!order || !ownsRecord(order.marketplaceAccount?.userId, userId)) {
+      throw new NotFoundException(`Order ${orderId} not found`);
     }
 
-    return prisma.shipment.create({
-      data: {
-        orderId,
-        provider: SHIPPING_PROVIDER,
-        status: ShipmentStatus.PENDING,
-        providerShipmentId,
-        providerRateId: rateId,
-        metadata: {
-          purchase: {
-            state: 'IN_PROGRESS',
-            requestedAt: new Date().toISOString(),
-          },
-        },
-      },
-    });
+    return order;
   }
 
   private resolveDefaultShipFrom(): AddressDto {
@@ -475,5 +519,13 @@ export class ShippingService {
       ...base,
       ...extra,
     } as Prisma.JsonObject;
+  }
+
+  private isConfigurationError(error: unknown) {
+    if (error instanceof ServiceUnavailableException) {
+      return true;
+    }
+
+    return isShippingConfigurationError(error instanceof Error ? error.message : null);
   }
 }

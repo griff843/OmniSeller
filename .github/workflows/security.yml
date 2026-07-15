@@ -1,0 +1,47 @@
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secrets-and-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Scan committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Scan dependency lockfile
+        uses: google/osv-scanner-action/osv-scanner-action@v2.0.2
+        with:
+          scan-args: |-
+            --lockfile=pnpm-lock.yaml
+
+  container-vulnerabilities:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: omniseller-api:ci
+            dockerfile: apps/api/Dockerfile
+          - image: omniseller-web:ci
+            dockerfile: apps/web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.image }} .
+      - name: Scan HIGH and CRITICAL application image vulnerabilities
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ matrix.image }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1

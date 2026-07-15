@@ -1,14 +1,41 @@
 import { createClient } from '@supabase/supabase-js';
+import { unlink } from 'fs/promises';
+import path from 'path';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
 const STORAGE_BUCKET = process.env.STORAGE_BUCKET ?? 'omniseller-images';
+const LOCAL_STORAGE_PREFIX = '/local-uploads';
+
+function isConfiguredSupabaseStorage() {
+  return Boolean(NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SERVICE_ROLE);
+}
+
+export function isLocalStorageFallbackEnabled() {
+  return !isConfiguredSupabaseStorage() && process.env.NODE_ENV !== 'production';
+}
 
 export function createStorageAdminClient() {
-  return createClient(SUPABASE_URL, SERVICE_ROLE);
+  if (!isConfiguredSupabaseStorage()) {
+    throw new Error('Supabase storage is not configured');
+  }
+
+  return createClient(NEXT_PUBLIC_SUPABASE_URL!, SUPABASE_SERVICE_ROLE!);
 }
 
 export async function createSignedUpload(storageKey: string) {
+  if (isLocalStorageFallbackEnabled()) {
+    const encodedKey = encodeURIComponent(storageKey);
+
+    return {
+      storageBucket: STORAGE_BUCKET,
+      signedUploadUrl: `/api/storage/local-upload?key=${encodedKey}`,
+      token: 'local-dev-upload',
+      path: storageKey,
+      publicUrl: `${LOCAL_STORAGE_PREFIX}/${storageKey}`,
+    };
+  }
+
   const supabase = createStorageAdminClient();
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUploadUrl(storageKey);
 
@@ -25,4 +52,17 @@ export async function createSignedUpload(storageKey: string) {
     path: data.path,
     publicUrl: publicData.publicUrl,
   };
+}
+
+export async function deleteStoredObject(storageBucket: string, storageKey: string) {
+  if (isLocalStorageFallbackEnabled()) {
+    const root = path.resolve(process.cwd(), 'public', 'local-uploads');
+    const target = path.resolve(root, ...storageKey.replace(/\\/g, '/').split('/').filter((segment) => segment && segment !== '.' && segment !== '..'));
+    if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Unsafe local storage key');
+    await unlink(target).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+    return;
+  }
+  const supabase = createStorageAdminClient();
+  const { error } = await supabase.storage.from(storageBucket).remove([storageKey]);
+  if (error) throw new Error(`Unable to delete stored photo: ${error.message}`);
 }

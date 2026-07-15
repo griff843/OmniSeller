@@ -1,16 +1,3 @@
 {
-  "issues": [
-    {
-      "id": "OMNI-108C",
-      "title": "Normalize inventory sort before building list order",
-      "status": "open",
-      "labels": ["ready"],
-      "tier": "T2",
-      "lane_type": "hygiene",
-      "file_scope": [
-        "apps/api/src/inventory/inventory.service.ts",
-        "apps/api/src/inventory/inventory.service.spec.ts"
-      ]
-    }
-  ]
+  "issues": []
 }

@@ -20,6 +20,10 @@ export class OpenAiListingProvider implements ListingAiProvider {
     private readonly promptBuilder: ListingPromptBuilder,
   ) {}
 
+  isConfigured(): boolean {
+    return Boolean(this.configService.get<string>('OPENAI_API_KEY'));
+  }
+
   async generateSuggestion(input: ListingGenerationInput): Promise<ListingGenerationResult> {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';
@@ -78,21 +82,21 @@ export class OpenAiListingProvider implements ListingAiProvider {
       },
     };
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    let response;
+    try {
+      response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal as any,
+      });
+    } catch (error) {
+      throw new ServiceUnavailableException(error instanceof Error && error.name === 'AbortError' ? 'OpenAI listing generation timed out.' : 'OpenAI listing generation is temporarily unavailable.');
+    } finally { clearTimeout(timeout); }
 
     const raw = await response.json();
 
     if (!response.ok) {
-      throw new InternalServerErrorException(
-        `OpenAI listing generation failed: ${response.status} ${JSON.stringify(raw)}`,
-      );
+      throw new InternalServerErrorException(`OpenAI listing generation failed with provider status ${response.status}.`);
     }
 
     const text = this.extractText(raw);

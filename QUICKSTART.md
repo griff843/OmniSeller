@@ -16,6 +16,7 @@ Copy-Item .env.example .env
 docker compose up -d postgres redis
 pnpm db:generate
 pnpm db:migrate:deploy
+pnpm db:seed
 pnpm dev
 ```
 
@@ -67,6 +68,7 @@ Remove-Item Env:OMNISELLER_SKIP_PRISMA_DEV_GUARD
 pnpm db:generate
 pnpm db:migrate:status
 pnpm db:migrate:deploy
+pnpm db:seed
 pnpm db:push
 pnpm db:studio
 ```

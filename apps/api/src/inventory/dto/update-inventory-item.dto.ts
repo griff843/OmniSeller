@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { InventoryStatus, SaleLifecycleStatus } from '@omniseller/db';
 
 export class UpdateInventoryItemDto {
   @IsOptional()
@@ -51,10 +52,10 @@ export class UpdateInventoryItemDto {
   binCode?: string | null;
 
   @IsOptional()
-  @IsString()
-  inventoryStatus?: string;
+  @IsEnum(InventoryStatus)
+  inventoryStatus?: InventoryStatus;
 
   @IsOptional()
-  @IsString()
-  saleStatus?: string;
+  @IsEnum(SaleLifecycleStatus)
+  saleStatus?: SaleLifecycleStatus;
 }

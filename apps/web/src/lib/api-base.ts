@@ -1,4 +1,21 @@
+import { requireUser } from './requireUser';
+
 export const API_BASE_URL = process.env.OMNISELLER_API_BASE_URL ?? 'http://localhost:3001';
+
+export function internalApiHeaders(userId: string, headers?: HeadersInit): HeadersInit {
+  const internalSecret = process.env.OMNISELLER_API_INTERNAL_SECRET;
+
+  if (!internalSecret) {
+    throw new Error('OMNISELLER_API_INTERNAL_SECRET is required for server-to-server API requests');
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    'x-omniseller-user-id': userId,
+    'x-omniseller-internal-secret': internalSecret,
+    ...(headers ?? {}),
+  };
+}
 
 export class ApiRequestError extends Error {
   constructor(
@@ -12,13 +29,11 @@ export class ApiRequestError extends Error {
 }
 
 export async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const user = await requireUser();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     cache: 'no-store',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: internalApiHeaders(user.id, init?.headers),
   });
 
   if (!response.ok) {
@@ -43,12 +58,10 @@ export async function proxyApi(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  const user = await requireUser();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: internalApiHeaders(user.id, init?.headers),
   });
 
   const text = await response.text();
