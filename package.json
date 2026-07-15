@@ -12,7 +12,7 @@
     "build": "pnpm --filter db build && pnpm --filter config build && pnpm --filter ui build && pnpm --filter web build && pnpm --filter api build",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm db:generate && pnpm -r typecheck",
     "test": "pnpm -r test",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "db:generate": "pnpm --filter db generate",
